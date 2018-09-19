@@ -199,155 +199,184 @@ int main(int argc, const char * argv[]) {
     int Ox = frame.cols/2;
     int Oy = frame.rows/2;
     
+    
     // * * * * * * * * * * * * * * * * *
-    //   ESTIMATE POSES OF ALL MODELS
+    //   INPUT LOOP
     // * * * * * * * * * * * * * * * * *
     
-    auto startRecog = chrono::system_clock::now(); // Start recognition timer
+    vector<double> times = {};
+    double longestTime = 0.0;
+    int homographiesNotFound = 0;
     
-    for (int m = 0; m < model.size(); m++) {
+    while (!frame.empty()) {
         
-        // Segment the image
-        Mat segInit = orange::segmentByColour(frame, model[m]->colour);
-        cvtColor(segInit, segInit, CV_BGR2GRAY);
-        threshold(segInit, segInit, 0, 255, CV_THRESH_BINARY);
+        // * * * * * * * * * * * * * * * * *
+        //   ESTIMATE POSES OF ALL MODELS
+        // * * * * * * * * * * * * * * * * *
         
-        // Convert the segmented image to a list of foreground coordinates
-        Mat target;
-        findNonZero(segInit, target);
-        target = target.t();
-        Mat targetRows[2];
-        split(target, targetRows);
-        vconcat(targetRows[0], targetRows[1], target);
-        vconcat(target, Mat::ones(1, target.cols, target.type()), target);
-        target.convertTo(target, P.type());
+        auto startRecog = chrono::system_clock::now(); // Start recognition timer
         
-        // Convert image coords to plane coords
-        Mat y = P.inv() * target;
-        Mat z = y.row(2);
-        Mat norm;
-        vconcat(z, z, norm);
-        vconcat(norm, z, norm);
-        divide(y, norm, y);
-        
-        // Draw the 2D plane
-        Mat plane = Mat::zeros(frame.rows, frame.cols, frame.type());
-        
-        for (int i = 0; i < y.cols; i++) {
-            Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
-            circle(plane, pt, 0, Scalar(0, 0, 255));
-        }
-        //imshow("plane", plane);
-        
-        // Find the edge lines in the 2D planes
-        vector<Vec4i> lines = orange::borderLines(plane);
-        vector<Point2f> imgPoints;
-        
-        // Convert the edges to a set of points
-        for (int i = 0; i < lines.size(); i++) {
-            Point p1 = Point(lines[i][0], lines[i][1]);
-            Point p2 = Point(lines[i][2], lines[i][3]);
+        for (int m = 0; m < model.size(); m++) {
             
-            Scalar colour = Scalar(0,255,0);
-            if (i == 0) colour = Scalar(255,0,0);
+            // Segment the image
+            Mat segInit = orange::segmentByColour(frame, model[m]->colour);
+            cvtColor(segInit, segInit, CV_BGR2GRAY);
+            threshold(segInit, segInit, 0, 255, CV_THRESH_BINARY);
             
-            line(plane, p1, p2, colour);
-            imgPoints.push_back(Point2f(p1));
-            imgPoints.push_back(Point2f(p2));
-        }
-        //imshow("plane2", plane);
-        
-        // * * * * * * * * * * * * * *
-        //      RECOGNITION
-        // * * * * * * * * * * * * * *
-        
-        Mat H;          // The best homography thus far
-        int edge = 0;   // The detected edge to use as a basis
-        bool found = false;
-        
-        while (edge < lines.size() && !found) {
-            vector<int> imgBasis = {2*edge, 2*edge +1};
+            // Convert the segmented image to a list of foreground coordinates
+            Mat target;
+            findNonZero(segInit, target);
+            target = target.t();
+            Mat targetRows[2];
+            split(target, targetRows);
+            vconcat(targetRows[0], targetRows[1], target);
+            vconcat(target, Mat::ones(1, target.cols, target.type()), target);
+            target.convertTo(target, P.type());
             
-            // Vote for the tables using the given basis
-            vector<HashTable> votedTables = hashing::voteForTables(tables[m], imgPoints, imgBasis);
-            int maxVotes = votedTables[0].votes;
+            // Convert image coords to plane coords
+            Mat y = P.inv() * target;
+            Mat z = y.row(2);
+            Mat norm;
+            vconcat(z, z, norm);
+            vconcat(norm, z, norm);
+            divide(y, norm, y);
             
-            for (int i = 0; i < votedTables.size(); i++) {
-                HashTable t = votedTables[i];
-                if (t.votes < MIN(200, maxVotes)) break;
-                
-                vector<Mat> orderedPoints = hashing::getOrderedPoints(imgBasis, t, model[m]->getVertices(), imgPoints);
-                
-                Mat newModel = orderedPoints[0];
-                Mat newTarget = orderedPoints[1];
-                
-                // Require at least 4 correspondences
-                if (newModel.cols < 4) continue;
-                
-                vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
-                vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
-                
-                Mat modInv = newModel.t() * (newModel * newModel.t()).inv();
-                H = newTarget * modInv;
-                
-                // Remove the offset added when drawing
-                H.at<float>(0,2) -= Ox;
-                H.at<float>(1,2) -= Oy;
-                
-                // Check the validity of the proposed Homography
-                float rowSum1 = H.at<float>(0,0)*H.at<float>(0,0) + H.at<float>(0,1)*H.at<float>(0,1);
-                float rowSum2 = H.at<float>(1,0)*H.at<float>(1,0) + H.at<float>(1,1)*H.at<float>(1,1);
-                rowSum1 = abs(1 - sqrt(rowSum1));
-                rowSum2 = abs(1 - sqrt(rowSum2));
-                if (rowSum1 < 0.1 && rowSum2 < 0.1) {
-                    found = true;
-                    break;
-                }
+            // Draw the 2D plane
+            Mat plane = Mat::zeros(frame.rows, frame.cols, frame.type());
+            
+            for (int i = 0; i < y.cols; i++) {
+                Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
+                circle(plane, pt, 0, Scalar(0, 0, 255));
             }
-            edge++;
+            //imshow("plane", plane);
+            
+            // Find the edge lines in the 2D planes
+            vector<Vec4i> lines = orange::borderLines(plane);
+            vector<Point2f> imgPoints;
+            
+            // Convert the edges to a set of points
+            for (int i = 0; i < lines.size(); i++) {
+                Point p1 = Point(lines[i][0], lines[i][1]);
+                Point p2 = Point(lines[i][2], lines[i][3]);
+                
+                Scalar colour = Scalar(0,255,0);
+                if (i == 0) colour = Scalar(255,0,0);
+                
+                line(plane, p1, p2, colour);
+                imgPoints.push_back(Point2f(p1));
+                imgPoints.push_back(Point2f(p2));
+            }
+            //imshow("plane2", plane);
+            
+            // * * * * * * * * * * * * * *
+            //      RECOGNITION
+            // * * * * * * * * * * * * * *
+            
+            Mat H;          // The best homography thus far
+            int edge = 0;   // The detected edge to use as a basis
+            bool found = false;
+            
+            while (edge < lines.size() && !found) {
+                vector<int> imgBasis = {2*edge, 2*edge +1};
+                
+                // Vote for the tables using the given basis
+                vector<HashTable> votedTables = hashing::voteForTables(tables[m], imgPoints, imgBasis);
+                int maxVotes = votedTables[0].votes;
+                
+                for (int i = 0; i < votedTables.size(); i++) {
+                    HashTable t = votedTables[i];
+                    if (t.votes < MIN(200, maxVotes)) break;
+                    
+                    vector<Mat> orderedPoints = hashing::getOrderedPoints(imgBasis, t, model[m]->getVertices(), imgPoints);
+                    
+                    Mat newModel = orderedPoints[0];
+                    Mat newTarget = orderedPoints[1];
+                    
+                    // Require at least 4 correspondences
+                    if (newModel.cols < 4) continue;
+                    
+                    vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
+                    vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
+                    
+                    Mat modInv = newModel.t() * (newModel * newModel.t()).inv();
+                    H = newTarget * modInv;
+                    
+                    // Remove the offset added when drawing
+                    H.at<float>(0,2) -= Ox;
+                    H.at<float>(1,2) -= Oy;
+                    
+                    // Check the validity of the proposed Homography
+                    float rowSum1 = H.at<float>(0,0)*H.at<float>(0,0) + H.at<float>(0,1)*H.at<float>(0,1);
+                    float rowSum2 = H.at<float>(1,0)*H.at<float>(1,0) + H.at<float>(1,1)*H.at<float>(1,1);
+                    rowSum1 = abs(1 - sqrt(rowSum1));
+                    rowSum2 = abs(1 - sqrt(rowSum2));
+                    if (rowSum1 < 0.1 && rowSum2 < 0.1) {
+                        found = true;
+                        break;
+                    }
+                }
+                edge++;
+            }
+            
+            if (!found) {
+                homographiesNotFound++;
+                continue;
+            }
+            
+            // * * * * * * * * * * * * * * * * *
+            //      SHOW THE ESTIMATED POSE
+            // * * * * * * * * * * * * * * * * *
+            
+            Mat modelMat = model[m]->pointsToMat();
+            vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
+            
+            // Find the coordinates of the model in the plane
+            Mat modelInPlane = H * modelMat;
+            
+            // Project to the camera
+            y = P * modelInPlane;
+            z = y.row(2);
+            vconcat(z, z, norm);
+            vconcat(norm, z, norm);
+            divide(y, norm, y);
+            
+            // Draw the shape
+            vector<Point> contour;
+            for (int i = 0; i < y.cols; i++) {
+                contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
+            }
+            
+            const Point *pts = (const cv::Point*) Mat(contour).data;
+            int npts = Mat(contour).rows;
+            
+            polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
         }
-        
-        if (!found) {
-            cout << "Didn't find a valid homography!" << endl;
-            waitKey(0); return 12;
-        }
-        
-        // * * * * * * * * * * * * * * * * *
-        //      SHOW THE ESTIMATED POSE
-        // * * * * * * * * * * * * * * * * *
-        
-        Mat modelMat = model[m]->pointsToMat();
-        vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
-        
-        // Find the coordinates of the model in the plane
-        Mat modelInPlane = H * modelMat;
-        
-        // Project to the camera
-        y = P * modelInPlane;
-        z = y.row(2);
-        vconcat(z, z, norm);
-        vconcat(norm, z, norm);
-        divide(y, norm, y);
-        
-        // Draw the shape
-        vector<Point> contour;
-        for (int i = 0; i < y.cols; i++) {
-            contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
-        }
-        
-        const Point *pts = (const cv::Point*) Mat(contour).data;
-        int npts = Mat(contour).rows;
-        
-        polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
         imshow("Frame", frame);
-
+        
+        auto endRecog = chrono::system_clock::now();
+        chrono::duration<double> timeRecog = endRecog-startRecog;
+        double time = timeRecog.count()*1000.0;
+        cout << "Recognition time = " << time << " ms" << endl;
+        
+        times.push_back(time);
+        if (time > longestTime) longestTime = time;
+        
+        // Get next frame
+        cap.grab();
+        cap >> frame;
+        
+        if (waitKey(1) == 'q') break;
     }
     
-    auto endRecog = chrono::system_clock::now();
-    chrono::duration<double> timeRecog = endRecog-startRecog;
-    cout << "Recognition time = " << timeRecog.count()*1000.0 << " ms" << endl;
+    vector<double> meanTime, stdDevTime;
+    meanStdDev(times, meanTime, stdDevTime);
     
-    waitKey(0);
+    cout << endl << endl;
+    cout << "No. frames   = " << times.size() << endl;
+    cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
+    cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
+    cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
+    cout << "Failures     = " << homographiesNotFound  << " (" << 100.0*homographiesNotFound/(model.size()*times.size()) << "%)" << endl;
     
     return 0;
 }
