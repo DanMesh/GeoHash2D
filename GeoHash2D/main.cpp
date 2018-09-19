@@ -56,7 +56,7 @@ int main(int argc, const char * argv[]) {
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
     
-    Model * model = modelArrow;
+    Model * model = modelDog;
     
     // * * * * * * * * * * * * * * * * *
     //   HASHING
@@ -236,7 +236,11 @@ int main(int argc, const char * argv[]) {
     for (int i = 0; i < lines.size(); i++) {
         Point p1 = Point(lines[i][0], lines[i][1]);
         Point p2 = Point(lines[i][2], lines[i][3]);
-        line(plane, p1, p2, Scalar(0,255,0));
+        
+        Scalar colour = Scalar(0,255,0);
+        if (i == 0) colour = Scalar(255,0,0);
+        
+        line(plane, p1, p2, colour);
         imgPoints.push_back(Point2f(p1));
         imgPoints.push_back(Point2f(p2));
     }
@@ -252,7 +256,7 @@ int main(int argc, const char * argv[]) {
     Mat H;          // The best homography thus far
     int edge = 0;   // The detected edge to use as a basis
     
-    while (edge < lines.size() && edge < 2) {
+    while (edge < lines.size() && edge < 1) {
         //TRACE:
         cout << endl << "TRYING EDGE #" << edge << endl;
         
@@ -283,6 +287,10 @@ int main(int argc, const char * argv[]) {
             
             Mat modInv = newModel.t() * (newModel * newModel.t()).inv();
             H = newTarget * modInv;
+            
+            // Remove the offset added when drawing
+            H.at<float>(0,2) -= Ox;
+            H.at<float>(1,2) -= Oy;
             cout << H << endl;
             
         }
@@ -298,6 +306,42 @@ int main(int argc, const char * argv[]) {
     
     Point2f translation = Point2f(H.at<float>(0,2), H.at<float>(1,2));
     cout << "translation = " << translation << endl;
+    
+    // * * * * * * * * * * * * * * * * *
+    //      SHOW THE ESTIMATED POSE
+    // * * * * * * * * * * * * * * * * *
+    
+    Mat modelMat = model->pointsToMat();
+    vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
+    cout << modelMat << endl;
+    
+    // Find the coordinates of the model in the plane
+    Mat modelInPlane = H * modelMat;
+    cout << modelInPlane << endl << endl;
+    cout << P << endl;
+    
+    // Project to the camera
+    y = P * modelInPlane;
+    z = y.row(2);
+    vconcat(z, z, norm);
+    vconcat(norm, z, norm);
+    divide(y, norm, y);
+    cout << y << endl;
+    
+    // Draw the shape
+    vector<Point> contour;
+    for (int i = 0; i < y.cols; i++) {
+        contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
+    }
+    
+    const Point *pts = (const cv::Point*) Mat(contour).data;
+    int npts = Mat(contour).rows;
+    
+    cout << "Number of polygon vertices: " << npts << endl;
+    // draw the polygon
+    polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
+    imshow("Frame2", frame);
+
     
     waitKey(0);
     
