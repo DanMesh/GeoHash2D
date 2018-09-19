@@ -180,9 +180,9 @@ estimate lsq::poseEstimate2D(Vec3f pose1, Mat model, Mat target, int maxIter) {
     }
     
     Vec6f poseOut;
-    for (int i = 0; i < 3; i++) {
-        poseOut[i] = pose1[i];
-    }
+    poseOut[0] = pose1[0];
+    poseOut[1] = pose1[1];
+    poseOut[5] = pose1[2];
     
     return estimate(poseOut, E, iterations);
 }

@@ -56,7 +56,7 @@ int main(int argc, const char * argv[]) {
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
     
-    Model * calibModel = modelDog;
+    Model * calibModel = modelArrow;
     vector<Model *> model = {modelArrow, modelDog, modelRect};
     
     // * * * * * * * * * * * * * * * * *
@@ -206,7 +206,6 @@ int main(int argc, const char * argv[]) {
     
     vector<double> times = {};
     double longestTime = 0.0;
-    int homographiesNotFound = 0;
     
     while (!frame.empty()) {
         
@@ -272,11 +271,10 @@ int main(int argc, const char * argv[]) {
             //      RECOGNITION
             // * * * * * * * * * * * * * *
             
-            Mat H;          // The best homography thus far
+            estimate bestEst = estimate({0,0,0,0,0,0}, 10000, 100);  // The best estimated pose so far
             int edge = 0;   // The detected edge to use as a basis
-            bool found = false;
             
-            while (edge < lines.size() && !found) {
+            while (edge < lines.size()) {
                 vector<int> imgBasis = {2*edge, 2*edge +1};
                 
                 // Vote for the tables using the given basis
@@ -298,29 +296,11 @@ int main(int argc, const char * argv[]) {
                     vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
                     vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
                     
-                    Mat modInv = newModel.t() * (newModel * newModel.t()).inv();
-                    H = newTarget * modInv;
-                    
-                    // Remove the offset added when drawing
-                    H.at<float>(0,2) -= Ox;
-                    H.at<float>(1,2) -= Oy;
-                    
-                    // Check the validity of the proposed Homography
-                    float rowSum1 = H.at<float>(0,0)*H.at<float>(0,0) + H.at<float>(0,1)*H.at<float>(0,1);
-                    float rowSum2 = H.at<float>(1,0)*H.at<float>(1,0) + H.at<float>(1,1)*H.at<float>(1,1);
-                    rowSum1 = abs(1 - sqrt(rowSum1));
-                    rowSum2 = abs(1 - sqrt(rowSum2));
-                    if (rowSum1 < 0.1 && rowSum2 < 0.1) {
-                        found = true;
-                        break;
-                    }
+                    // Use least squares to estimate pose
+                    estimate est = lsq::poseEstimate2D({0,0,0}, newModel, newTarget);
+                    if (est.error < bestEst.error) bestEst = est;
                 }
                 edge++;
-            }
-            
-            if (!found) {
-                homographiesNotFound++;
-                continue;
             }
             
             // * * * * * * * * * * * * * * * * *
@@ -330,8 +310,9 @@ int main(int argc, const char * argv[]) {
             Mat modelMat = model[m]->pointsToMat();
             vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
             
-            // Find the coordinates of the model in the plane
-            Mat modelInPlane = H * modelMat;
+            // Find the coordintes using the LSQ result
+            Vec3f poseLSQ = {bestEst.pose[0] - Ox, bestEst.pose[1] - Oy, bestEst.pose[5]};
+            Mat modelInPlane = lsq::projection2D(poseLSQ, modelMat);
             
             // Project to the camera
             y = P * modelInPlane;
@@ -376,7 +357,6 @@ int main(int argc, const char * argv[]) {
     cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
     cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
     cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
-    cout << "Failures     = " << homographiesNotFound  << " (" << 100.0*homographiesNotFound/(model.size()*times.size()) << "%)" << endl;
     
     return 0;
 }
