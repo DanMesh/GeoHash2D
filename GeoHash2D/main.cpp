@@ -56,7 +56,7 @@ int main(int argc, const char * argv[]) {
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
     
-    Model * model = modelDog;
+    Model * model = modelArrow;
     
     // * * * * * * * * * * * * * * * * *
     //   HASHING
@@ -255,8 +255,9 @@ int main(int argc, const char * argv[]) {
     
     Mat H;          // The best homography thus far
     int edge = 0;   // The detected edge to use as a basis
+    bool found = false;
     
-    while (edge < lines.size() && edge < 1) {
+    while (edge < lines.size() && !found) {
         //TRACE:
         cout << endl << "TRYING EDGE #" << edge << endl;
         
@@ -293,6 +294,16 @@ int main(int argc, const char * argv[]) {
             H.at<float>(1,2) -= Oy;
             cout << H << endl;
             
+            // Check the validity of the proposed Homography
+            float rowSum1 = H.at<float>(0,0)*H.at<float>(0,0) + H.at<float>(0,1)*H.at<float>(0,1);
+            float rowSum2 = H.at<float>(1,0)*H.at<float>(1,0) + H.at<float>(1,1)*H.at<float>(1,1);
+            rowSum1 = abs(1 - sqrt(rowSum1));
+            rowSum2 = abs(1 - sqrt(rowSum2));
+            cout << rowSum1 << " " << rowSum2 << endl;
+            if (rowSum1 < 0.1 && rowSum2 < 0.1) {
+                found = true;
+                break;
+            }
         }
         edge++;
     }
@@ -300,6 +311,11 @@ int main(int argc, const char * argv[]) {
     auto endRecog = chrono::system_clock::now();
     chrono::duration<double> timeRecog = endRecog-startRecog;
     cout << "Recognition time = " << timeRecog.count()*1000.0 << " ms" << endl;
+    
+    if (!found) {
+        cout << "Didn't find a valid homography!" << endl;
+        waitKey(0); return 12;
+    }
     
     float theta = atan2(H.at<float>(0,1), H.at<float>(0,0));
     cout << "theta = " << theta << endl;
