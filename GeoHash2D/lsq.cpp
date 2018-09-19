@@ -140,3 +140,93 @@ Vec6f estimate::standardisePose(Vec6f pose) {
     }
     return pose;
 }
+
+
+// * * * * * * * * * * * * * * * * *
+//   2D Methods
+// * * * * * * * * * * * * * * * * *
+
+estimate lsq::poseEstimate2D(Vec3f pose1, Mat model, Mat target, int maxIter) {
+    // pose1: imitial pose parameters
+    // model: model points in full 2D homogeneous coords (as columns)
+    // target: image points in full 2D homogeneous coords  (as columns)
+    // maxIter: max no of iterations, default if 0
+    
+    if (maxIter == 0) maxIter = MAX_ITERATIONS;
+    
+    Mat y = lsq::projection2D(pose1, model);
+    float E = lsq::projectionError2D(target, y);
+    
+    int iterations = 0;
+    while (E > ERROR_THRESHOLD && iterations < maxIter) {
+        Mat J = lsq::jacobian2D(pose1, model);
+        Mat eps;
+        subtract(y, target, eps);
+        eps = lsq::pointsAsCol(eps);
+        Mat Jp = J.t() * J;
+        Jp = -Jp.inv() * J.t();
+        Mat del = Jp * eps;
+        
+        Vec3f pose2 = pose1;
+        for (int i = 0; i < 3; i++) {
+            pose2[i] += del.at<float>(i);
+        }
+        
+        y = lsq::projection2D(pose2, model);
+        E = lsq::projectionError2D(target, y);
+        
+        pose1 = pose2;
+        iterations++;
+    }
+    
+    Vec6f poseOut;
+    for (int i = 0; i < 3; i++) {
+        poseOut[i] = pose1[i];
+    }
+    
+    return estimate(poseOut, E, iterations);
+}
+
+Mat lsq::projection2D(Vec3f pose, Mat model) {
+    float a = pose[2];
+    float proj[3][3] = {
+        {  cos(a), -sin(a),  pose[0] },
+        {  sin(a),  cos(a),  pose[1] },
+        {       0,       0,    1     }
+    };
+    Mat P = Mat(3, 3, CV_32FC1, proj);
+    
+    return P * model;
+}
+
+float lsq::projectionError2D(Mat target, Mat proj) {
+    Mat e;
+    subtract(target, proj, e);
+    multiply(e, e, e);
+    reduce(e, e, 1, CV_REDUCE_SUM, CV_32FC1);
+    sqrt(e, e);
+    Mat eT;
+    transpose(e, eT);
+    e = eT * e;
+    return e.at<float>(0);
+}
+
+Mat lsq::jacobian2D(Vec3f pose, Mat model) {
+    // Calculates the Jacobian for the given pose of the model points
+    Mat J = Mat(2*model.cols, 0, CV_32FC1);
+    
+    float dt = 1;
+    float dr = CV_PI/180;
+    vector<float> delta = {dt, dt, dr};
+    
+    for (int i = 0; i < 3; i++) {
+        Vec3f p1 = pose;
+        p1[i] += delta[i];
+        Vec3f p2 = pose;
+        p2[i] -= delta[i];
+        Mat j = (projection2D(p1, model) - projection2D(p2, model))/delta[i];
+        hconcat(J, pointsAsCol(j), J);
+    }
+    
+    return J;
+}

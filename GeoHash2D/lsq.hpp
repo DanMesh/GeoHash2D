@@ -56,6 +56,12 @@ public:
     static float projectionError(Mat target, Mat proj);
     static Mat pointsAsCol(Mat points);
     static Mat jacobian(Vec6f pose, Mat x, Mat K);
+    
+    // 2D methods for affine case
+    static estimate poseEstimate2D(Vec3f pose1, Mat model, Mat target, int maxIter = MAX_ITERATIONS);
+    static Mat projection2D(Vec3f pose, Mat model);
+    static float projectionError2D(Mat target, Mat proj);
+    static Mat jacobian2D(Vec3f pose, Mat model);
         
 /*
     CONSTANTS
