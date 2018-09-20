@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		3798F9BC21539BEB0025F569 /* area.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3798F9BA21539BEB0025F569 /* area.cpp */; };
 		37FB76242150D83800F5A3D5 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 37FB76232150D83800F5A3D5 /* main.cpp */; };
 		37FB762B2150DAC700F5A3D5 /* libopencv_core.3.4.2.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 37FB762A2150DAC700F5A3D5 /* libopencv_core.3.4.2.dylib */; };
 		37FB762D2150DB6B00F5A3D5 /* libopencv_videoio.3.4.2.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 37FB762C2150DB6B00F5A3D5 /* libopencv_videoio.3.4.2.dylib */; };
@@ -34,6 +35,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3798F9BA21539BEB0025F569 /* area.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = area.cpp; sourceTree = "<group>"; };
+		3798F9BB21539BEB0025F569 /* area.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = area.hpp; sourceTree = "<group>"; };
 		37FB76202150D83800F5A3D5 /* GeoHash2D */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = GeoHash2D; sourceTree = BUILT_PRODUCTS_DIR; };
 		37FB76232150D83800F5A3D5 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		37FB762A2150DAC700F5A3D5 /* libopencv_core.3.4.2.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libopencv_core.3.4.2.dylib; path = ../../../../../../../usr/local/Cellar/opencv/3.4.2/lib/libopencv_core.3.4.2.dylib; sourceTree = "<group>"; };
@@ -94,6 +97,8 @@
 		37FB76222150D83800F5A3D5 /* GeoHash2D */ = {
 			isa = PBXGroup;
 			children = (
+				3798F9BA21539BEB0025F569 /* area.cpp */,
+				3798F9BB21539BEB0025F569 /* area.hpp */,
 				37FB763C2150E15200F5A3D5 /* asm.cpp */,
 				37FB763B2150E15200F5A3D5 /* asm.hpp */,
 				37FB763E2150FB6800F5A3D5 /* edgy.cpp */,
@@ -171,6 +176,7 @@
 			files = (
 				37FB76382150DD0800F5A3D5 /* lsq.cpp in Sources */,
 				37FB7646215104A600F5A3D5 /* models.cpp in Sources */,
+				3798F9BC21539BEB0025F569 /* area.cpp in Sources */,
 				37FB764B21513D3A00F5A3D5 /* hashing.cpp in Sources */,
 				37FB764C21513D3A00F5A3D5 /* geo_hash.cpp in Sources */,
 				37FB76242150D83800F5A3D5 /* main.cpp in Sources */,

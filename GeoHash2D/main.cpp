@@ -10,6 +10,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/videoio/videoio.hpp>
 
+#include "area.hpp"
 #include "asm.hpp"
 #include "edgy.hpp"
 #include "geo_hash.h"
@@ -39,6 +40,8 @@ static Mat K = Mat(3,3, CV_32FC1, intrinsicMatrix);
 static float binWidth = 1;
 
 static string dataFolder = "../../../../../data/";
+
+static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
 
 
 
@@ -199,6 +202,8 @@ int main(int argc, const char * argv[]) {
     int Ox = frame.cols/2;
     int Oy = frame.rows/2;
     
+    waitKey(0);
+    
     
     // * * * * * * * * * * * * * * * * *
     //   INPUT LOOP
@@ -206,6 +211,8 @@ int main(int argc, const char * argv[]) {
     
     vector<double> times = {};
     double longestTime = 0.0;
+    vector<vector<double>> errors = vector<vector<double>>(model.size());
+    vector<double> worstError = vector<double>(model.size());
     
     while (!frame.empty()) {
         
@@ -218,13 +225,13 @@ int main(int argc, const char * argv[]) {
         for (int m = 0; m < model.size(); m++) {
             
             // Segment the image
-            Mat segInit = orange::segmentByColour(frame, model[m]->colour);
-            cvtColor(segInit, segInit, CV_BGR2GRAY);
-            threshold(segInit, segInit, 0, 255, CV_THRESH_BINARY);
+            Mat seg = orange::segmentByColour(frame, model[m]->colour);
+            cvtColor(seg, seg, CV_BGR2GRAY);
+            threshold(seg, seg, 0, 255, CV_THRESH_BINARY);
             
             // Convert the segmented image to a list of foreground coordinates
             Mat target;
-            findNonZero(segInit, target);
+            findNonZero(seg, target);
             target = target.t();
             Mat targetRows[2];
             split(target, targetRows);
@@ -331,6 +338,14 @@ int main(int argc, const char * argv[]) {
             int npts = Mat(contour).rows;
             
             polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
+            
+            // Measure and report the unexplained area
+            if (!REPORT_ERRORS) continue;
+            Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
+            fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
+            double unexplainedArea = area::unexplainedArea(silhouette, seg);
+            errors[m].push_back(unexplainedArea);
+            if (unexplainedArea > worstError[m]) worstError[m] = unexplainedArea;
         }
         imshow("Frame", frame);
         
@@ -357,6 +372,16 @@ int main(int argc, const char * argv[]) {
     cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
     cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
     cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
+    
+    // Report errors
+    if (!REPORT_ERRORS) return 0;
+    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst" << endl;
+    for (int m = 0; m < model.size(); m++) {
+        vector<double> meanError, stdDevError;
+        meanStdDev(errors[m], meanError, stdDevError);
+        printf("%4i    %5.2f    %5.2f    %5.2f \n", m, meanError[0], stdDevError[0], worstError[m]);
+        //cout << m << "   " << meanError[0] << "   " << stdDevError[0] << "   " << worstError[m] << endl;
+    }
     
     return 0;
 }
