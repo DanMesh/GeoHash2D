@@ -37,11 +37,11 @@ static float intrinsicMatrix[3][3] = {
 };
 static Mat K = Mat(3,3, CV_32FC1, intrinsicMatrix);
 
-static float binWidth = 1;
+static float binWidth = 0.5;
 
 static string dataFolder = "../../../../../data/";
 
-static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
+static bool REPORT_ERRORS = false; // Whether to report the area error (slows performance)
 
 
 
@@ -69,6 +69,72 @@ int main(int argc, const char * argv[]) {
     auto startHash = chrono::system_clock::now(); // Start hashing timer
     
     vector<vector<HashTable>> tables;
+    geo_hash onlyTable = geo_hash(binWidth);
+    onlyTable = hashing::hashModelsIntoTable(onlyTable, model);
+    
+    Mat fakeImg = Mat::zeros(720, 1024, CV_8UC1);
+    modelDog->draw(fakeImg, {0,0,400,0,0,0.5}, K, true, Scalar(255));
+    imshow("fake image", fakeImg);
+    
+    // Detect line segments
+    vector<Vec4i> linesF = orange::borderLines(fakeImg);
+    vector<Point2f> imgPointsF;
+    
+    Mat plane2;
+    cvtColor(fakeImg, plane2, CV_GRAY2BGR);
+    // Convert the edges to a set of points
+    for (int i = 0; i < linesF.size(); i++) {
+        Point p1 = Point(linesF[i][0], linesF[i][1]);
+        Point p2 = Point(linesF[i][2], linesF[i][3]);
+        imgPointsF.push_back(Point2f(p1));
+        imgPointsF.push_back(Point2f(p2));
+        
+        Scalar col = Scalar(0,255,0);
+        if (i == 0) col = Scalar(255,0,0);
+        
+        line(plane2, p1, p2, col);
+        circle(plane2, p1, 1, Scalar(0,0,255));
+        circle(plane2, p2, 1, Scalar(0,0,255));
+    }
+    imshow("fake image 2", plane2);
+    
+    vector<int> basisF = {0,1};
+    vector<VoteTally> vt = hashing::voteWithBasis(onlyTable, imgPointsF, basisF);
+    
+    cout << "Voting Results:" << endl;
+    for (int t = 0; t < vt.size(); t++) {
+        cout << vt[t].mb.model << " " << Mat(vt[t].mb.basis).t() << " : " << vt[t].votes << endl;
+    }
+    
+    vector<Mat> orderedPointsF = hashing::getOrderedPoints2(onlyTable, vt[0].mb, basisF, model[vt[0].mb.model]->getVertices(), imgPointsF);
+    
+    Mat newModel = orderedPointsF[0];
+    Mat newTarget = orderedPointsF[1];
+    
+    // Take only 4 correspondences
+    if (newModel.cols <= 0) return 12;
+    if (newModel.cols > 4) {
+        newModel = newModel.colRange(0, 4);
+        newTarget = newTarget.rowRange(0, 4);
+    }
+    else if (newModel.cols < 4) {
+        //TRACE
+        cout << "* * * Only " << newModel.cols << " correspondences!!" << endl;
+    }
+    
+    Vec6f poseInit = {-50, 50, 500, 0, 0, 0};
+    estimate est = lsq::poseEstimateLM(poseInit, newModel, newTarget, K);
+    est.print();
+    
+    cout << newModel << endl;
+    cout << newTarget.t() << endl;
+    
+    model[vt[0].mb.model]->draw(fakeImg, est.pose, K, true, Scalar(130));
+    imshow("result", fakeImg);
+    
+    waitKey(0); return 12;
+    
+    // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
     
     for (int m = 0; m < model.size(); m++) {
         
@@ -216,70 +282,73 @@ int main(int argc, const char * argv[]) {
     
     while (!frame.empty()) {
         
-        // * * * * * * * * * * * * * * * * *
-        //   ESTIMATE POSES OF ALL MODELS
-        // * * * * * * * * * * * * * * * * *
+        // * * * * * * * * * * * * * *
+        //      RECOGNITION
+        // * * * * * * * * * * * * * *
         
         auto startRecog = chrono::system_clock::now(); // Start recognition timer
         
+        // Detect edges
+        Mat canny, cannyTest;
+        Canny(frame, canny, 40, 120);
+        
+        // Map edge points to the 2D plane
+        // TODO: this could also happen after detecting line segments - try it, might be faster
+        
+        // Convert the canny image to a list of edge coordinates
+        Mat edges;
+        findNonZero(canny, edges);
+        edges = edges.t();
+        Mat edgesRows[2];
+        split(edges, edgesRows);
+        vconcat(edgesRows[0], edgesRows[1], edges);
+        vconcat(edges, Mat::ones(1, edges.cols, edges.type()), edges);
+        edges.convertTo(edges, P.type());
+        
+        // Convert image coords to plane coords
+        Mat y = P.inv() * edges;
+        Mat z = y.row(2);
+        Mat norm;
+        vconcat(z, z, norm);
+        vconcat(norm, z, norm);
+        divide(y, norm, y);
+        
+        // Draw the 2D plane
+        Mat plane = Mat::zeros(canny.rows, canny.cols, canny.type());
+        
+        for (int i = 0; i < y.cols; i++) {
+            Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
+            circle(plane, pt, 0, Scalar(255));
+        }
+        imshow("plane", plane);
+        
+        // Detect line segments
+        // TODO: either HoughLinesP or LSD (HLP gives better 'complete' lines)
+        vector<Vec4i> lines = orange::borderLines(plane);
+        vector<Point2f> imgPoints;
+        
+        Mat plane2;
+        cvtColor(plane, plane2, CV_GRAY2BGR);
+        // Convert the edges to a set of points
+        for (int i = 0; i < lines.size(); i++) {
+            Point p1 = Point(lines[i][0], lines[i][1]);
+            Point p2 = Point(lines[i][2], lines[i][3]);
+            imgPoints.push_back(Point2f(p1));
+            imgPoints.push_back(Point2f(p2));
+            
+            line(plane2, p1, p2, Scalar(0,255,0));
+            circle(plane2, p1, 1, Scalar(0,0,255));
+            circle(plane2, p2, 1, Scalar(0,0,255));
+        }
+        imshow("plane2", plane2);
+        
+        
+        // For each model...
         for (int m = 0; m < model.size(); m++) {
-            
-            // Segment the image
-            Mat seg = orange::segmentByColour(frame, model[m]->colour);
-            cvtColor(seg, seg, CV_BGR2GRAY);
-            threshold(seg, seg, 0, 255, CV_THRESH_BINARY);
-            
-            // Convert the segmented image to a list of foreground coordinates
-            Mat target;
-            findNonZero(seg, target);
-            target = target.t();
-            Mat targetRows[2];
-            split(target, targetRows);
-            vconcat(targetRows[0], targetRows[1], target);
-            vconcat(target, Mat::ones(1, target.cols, target.type()), target);
-            target.convertTo(target, P.type());
-            
-            // Convert image coords to plane coords
-            Mat y = P.inv() * target;
-            Mat z = y.row(2);
-            Mat norm;
-            vconcat(z, z, norm);
-            vconcat(norm, z, norm);
-            divide(y, norm, y);
-            
-            // Draw the 2D plane
-            Mat plane = Mat::zeros(frame.rows, frame.cols, frame.type());
-            
-            for (int i = 0; i < y.cols; i++) {
-                Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
-                circle(plane, pt, 0, Scalar(0, 0, 255));
-            }
-            //imshow("plane", plane);
-            
-            // Find the edge lines in the 2D planes
-            vector<Vec4i> lines = orange::borderLines(plane);
-            vector<Point2f> imgPoints;
-            
-            // Convert the edges to a set of points
-            for (int i = 0; i < lines.size(); i++) {
-                Point p1 = Point(lines[i][0], lines[i][1]);
-                Point p2 = Point(lines[i][2], lines[i][3]);
-                
-                Scalar colour = Scalar(0,255,0);
-                if (i == 0) colour = Scalar(255,0,0);
-                
-                line(plane, p1, p2, colour);
-                imgPoints.push_back(Point2f(p1));
-                imgPoints.push_back(Point2f(p2));
-            }
-            //imshow("plane2", plane);
-            
-            // * * * * * * * * * * * * * *
-            //      RECOGNITION
-            // * * * * * * * * * * * * * *
             
             estimate bestEst = estimate({0,0,0,0,0,0}, 10000, 100);  // The best estimated pose so far
             int edge = 0;   // The detected edge to use as a basis
+            // LATER: try choose whatever's closest to the previous usable basis
             
             while (edge < lines.size()) {
                 vector<int> imgBasis = {2*edge, 2*edge +1};
@@ -343,7 +412,7 @@ int main(int argc, const char * argv[]) {
             if (!REPORT_ERRORS) continue;
             Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
             fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-            double unexplainedArea = area::unexplainedArea(silhouette, seg);
+            double unexplainedArea = 0;//area::unexplainedArea(silhouette, seg);
             errors[m].push_back(unexplainedArea);
             if (unexplainedArea > worstError[m]) worstError[m] = unexplainedArea;
         }
@@ -361,7 +430,7 @@ int main(int argc, const char * argv[]) {
         cap.grab();
         cap >> frame;
         
-        if (waitKey(1) == 'q') break;
+        if (waitKey(0) == 'q') break;
     }
     
     vector<double> meanTime, stdDevTime;

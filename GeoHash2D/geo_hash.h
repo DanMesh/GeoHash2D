@@ -7,17 +7,34 @@
 #include <list>
 #include <vector>
 
+using namespace std;
+
+// A model-basis identifier
+class model_basis {
+public:
+    model_basis(int in_model = -1, vector<int> in_basis = {}) : model(in_model), basis(in_basis) {}
+    int model;
+    vector<int> basis;
+    
+    bool operator == (const model_basis& mb) const
+    {
+        return (model == mb.model && basis[0] == mb.basis[0] && basis[1] == mb.basis[1]);
+    }
+};
+
 //  A point location in 2d
 class point {
 public:
-  point( float in_x, float in_y, int in_id = -1 ) : m_x(in_x), m_y(in_y), m_id(in_id) {}
+  point( float in_x, float in_y, int in_id = -1, model_basis in_model_basis = model_basis() ) : m_x(in_x), m_y(in_y), m_id(in_id), m_model_basis(in_model_basis) {}
   point() : m_x(0), m_y(0), m_id(-1) {}
   float x() const { return m_x; }
   float y() const { return m_y; }
   int getID() const { return m_id; }
+  model_basis modelBasis() const { return m_model_basis; }
 private:
   float m_x, m_y;
   int m_id;
+  model_basis m_model_basis;
 };
 
 
