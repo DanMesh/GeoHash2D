@@ -282,7 +282,7 @@ vector<Mat> hashing::getOrderedPoints2(geo_hash table, model_basis mb, vector<in
             
             for (int p = 0; p < binPoints.size(); p++) {
                 if (binPoints[p].modelBasis() == mb) {
-                    int modelPt_ID = binPoints[0].getID();
+                    int modelPt_ID = binPoints[p].getID();
                     orderedModelPoints.push_back(modelPoints[modelPt_ID]);
                     orderedImgPoints.push_back(imgPoints[j]);
                     break;

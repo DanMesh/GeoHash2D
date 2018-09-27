@@ -22,6 +22,7 @@ using namespace cv;
 class VoteTally {
 public:
     VoteTally(model_basis mb_in) : mb(mb_in) {}
+    VoteTally() {}
     void vote() { votes++; };
     model_basis mb;
     int votes = 0;
