@@ -117,6 +117,7 @@ double area::unexplainedArea(Vec6f pose, Model * model, Mat img, Mat K) {
 double area::unexplainedArea(Mat silhouette, Mat img) {
     // Counts the percentage of the image pixels (in 'img') not explained by the
     // model silhouette.
+    // 'img' is typically a segmentation/mask of the image foreground
     
     // Count the number of pixels in the image
     int numImagePixels = countNonZero(img);
@@ -129,5 +130,25 @@ double area::unexplainedArea(Mat silhouette, Mat img) {
     // Calculate the percentage of the image not in the intersection
     int numUnexplainedPixels = numImagePixels - numOverlappingPixels;
     return 100.0 * numUnexplainedPixels / numImagePixels;
+}
+
+double area::areaError(Mat silhouette, Mat img) {
+    // Determines the percentage of the union not in the intersection of
+    // the proposed model (in 'silhouette') and in the image ('img')
+    // 'img' is typically a segmentation/mask of the image foreground
+    
+    int numImagePixels = countNonZero(img);
+    int numModelPixels = countNonZero(silhouette);
+    
+    // Find the overlapping region
+    Mat overlap;
+    bitwise_and(img, silhouette, overlap);
+    int numOverlappingPixels = countNonZero(overlap);
+    
+    // Calculate the percentage of the UNION not included in the INTERSECTION
+    // i.e. (Model XOR Image) / (Model UNION Image)
+    int UNION = numModelPixels + numImagePixels - numOverlappingPixels;
+    int XOR = UNION - numOverlappingPixels;
+    return 100.0 * XOR / UNION;
 }
 

@@ -30,6 +30,7 @@ public:
     static estimate poseEstimateArea(Vec6f pose1, Model * model, Mat img, Mat K, int maxIter = MAX_ITERATIONS);
     static double unexplainedArea(Vec6f pose, Model * model, Mat img, Mat K);
     static double unexplainedArea(Mat silhouette, Mat img);
+    static double areaError(Mat silhouette, Mat img);
 
 /*
  CONSTANTS

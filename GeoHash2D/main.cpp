@@ -41,7 +41,7 @@ static float binWidth = 0.2;
 
 static string dataFolder = "../../../../../data/";
 
-static bool REPORT_ERRORS = false; // Whether to report the area error (slows performance)
+static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
 
 
 
@@ -215,15 +215,22 @@ int main(int argc, const char * argv[]) {
     double longestTime = 0.0;
     vector<vector<double>> errors = vector<vector<double>>(model.size());
     vector<double> worstError = vector<double>(model.size());
+    vector<int> failures(model.size());
+    
+    vector<double> timesNew = {};
+    double longestTimeNew = 0.0;
+    vector<vector<double>> errorsNew = vector<vector<double>>(model.size());
+    vector<double> worstErrorNew = vector<double>(model.size());
+    vector<int> failuresNew(model.size());
     
     while (!frame.empty()) {
+        Mat frameOrig;
+        frame.copyTo(frameOrig);
         
         // * * * * * * * * * * * * * *
         //      RECOGNITION
         // * * * * * * * * * * * * * *
-        
-        auto startRecog = chrono::system_clock::now(); // Start recognition timer
-        
+                
         // Detect edges
         Mat canny, cannyTest;
         Canny(frame, canny, 40, 120);
@@ -282,6 +289,8 @@ int main(int argc, const char * argv[]) {
         //      USING ONE TABLE
         // * * * * * * * * * * * * * *
         
+        auto startRecog = chrono::system_clock::now(); // Start recognition timer
+        
         // Check for entries in the hash table
         VoteTally bestVT[model.size()];
         vector<estimate> bestEst(3);
@@ -327,16 +336,7 @@ int main(int argc, const char * argv[]) {
                 cout << "Error! Empty image basis!" << endl;
                 continue;
             }
-            /*vector<Mat> orderedPointsF = hashing::getOrderedPoints2(onlyTable, bestVT[m].mb, bestImgBasis[m], model[m]->getVertices(), imgPoints);
-            Mat newModel = orderedPointsF[0];
-            Mat newTarget = orderedPointsF[1];
-            
-            vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
-            vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
-            
-            // Use least squares to estimate pose
-            estimate est = lsq::poseEstimate2D({0,0,0}, newModel, newTarget); */
-            estimate est = bestEst[m];//TRACE
+            estimate est = bestEst[m];
             
             // * * * * * * * * * * * * * * * * *
             //      SHOW THE ESTIMATED POSE
@@ -367,19 +367,26 @@ int main(int argc, const char * argv[]) {
             
             polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
             
-            // Measure and report the unexplained area
-            if (!REPORT_ERRORS) continue;
-            Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
-            fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-            double unexplainedArea = 0;//area::unexplainedArea(silhouette, seg);
-            errors[m].push_back(unexplainedArea);
-            if (unexplainedArea > worstError[m]) worstError[m] = unexplainedArea;
+            // Measure and report the area error
+            if (REPORT_ERRORS) {
+                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
+                cvtColor(seg, seg, CV_BGR2GRAY);
+                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
+                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
+                double areaError = area::areaError(silhouette, seg);
+                errorsNew[m].push_back(areaError);
+                if (areaError > worstErrorNew[m]) worstErrorNew[m] = areaError;
+                if (areaError > 99) failuresNew[m]++;
+            }
         }
         
         auto endRecog2 = chrono::system_clock::now();
         chrono::duration<double> timeRecog2 = endRecog2-startRecog;
-        double time2 = timeRecog2.count()*1000.0;
-        cout << "Recognition time = " << time2 << " ms" << endl;
+        double timeNew = timeRecog2.count()*1000.0;
+        cout << "Recognition time = " << timeNew << " ms" << endl;
+        
+        timesNew.push_back(timeNew);
+        if (timeNew > longestTimeNew) longestTimeNew = timeNew;
         
         // * * * * * * * * * * * * * *
         //      USING MULTIPLE TABLES
@@ -450,13 +457,17 @@ int main(int argc, const char * argv[]) {
             
             polylines(frame, &pts, &npts, 1, true, Scalar(0, 0, 255));
             
-            // Measure and report the unexplained area
-            if (!REPORT_ERRORS) continue;
-            Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
-            fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-            double unexplainedArea = 0;//area::unexplainedArea(silhouette, seg);
-            errors[m].push_back(unexplainedArea);
-            if (unexplainedArea > worstError[m]) worstError[m] = unexplainedArea;
+            // Measure and report the area error
+            if (REPORT_ERRORS) {
+                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
+                cvtColor(seg, seg, CV_BGR2GRAY);
+                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
+                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
+                double areaError = area::areaError(silhouette, seg);
+                errors[m].push_back(areaError);
+                if (areaError > worstError[m]) worstError[m] = areaError;
+                if (areaError > 99) failures[m]++;
+            }
         }
         imshow("Frame", frame);
         
@@ -484,14 +495,27 @@ int main(int argc, const char * argv[]) {
     cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
     cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
     
+    meanStdDev(timesNew, meanTime, stdDevTime);
+    cout << endl << "NEW METHOD:" << endl;
+    cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
+    cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
+    cout << "Longest time = " << longestTimeNew << " ms     " << 1000.0/longestTimeNew << " fps" << endl;
+    
     // Report errors
     if (!REPORT_ERRORS) return 0;
-    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst" << endl;
+    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst     Failures" << endl;
     for (int m = 0; m < model.size(); m++) {
         vector<double> meanError, stdDevError;
         meanStdDev(errors[m], meanError, stdDevError);
-        printf("%4i    %5.2f    %5.2f    %5.2f \n", m, meanError[0], stdDevError[0], worstError[m]);
-        //cout << m << "   " << meanError[0] << "   " << stdDevError[0] << "   " << worstError[m] << endl;
+        printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstError[m], failures[m]);
+    }
+    
+    cout << endl << "NEW METHOD:";
+    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst     Failures" << endl;
+    for (int m = 0; m < model.size(); m++) {
+        vector<double> meanError, stdDevError;
+        meanStdDev(errorsNew[m], meanError, stdDevError);
+        printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstErrorNew[m], failuresNew[m]);
     }
     
     return 0;
