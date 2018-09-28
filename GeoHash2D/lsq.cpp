@@ -141,6 +141,23 @@ Vec6f estimate::standardisePose(Vec6f pose) {
     return pose;
 }
 
+bool estimate::mostSimilar(Vec6f poseA, Vec6f poseB, float alpha) {
+    // Returns true if poseA is more similar to this pose than poseB
+    // 'alpha' scales the error in the rotation (due to different units)
+    Mat diff;
+    hconcat(Mat(poseA - this->pose), Mat(poseB - this->pose), diff);
+    Mat tra = diff.rowRange(0, 3);
+    Mat rot = diff.rowRange(3, 6);
+        
+    tra = tra.t()*tra;
+    float traDiff = tra.at<float>(1,1) - tra.at<float>(0,0);
+    
+    rot = rot.t()*rot;
+    float rotDiff = rot.at<float>(1,1) - rot.at<float>(0,0);
+    
+    return (traDiff + alpha * rotDiff) >= 0;
+}
+
 
 // * * * * * * * * * * * * * * * * *
 //   2D Methods
