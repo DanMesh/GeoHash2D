@@ -223,9 +223,6 @@ int main(int argc, const char * argv[]) {
     vector<double> worstErrorNew = vector<double>(model.size());
     vector<int> failuresNew(model.size());
     
-    vector<estimate> prevEst(model.size());
-    vector<estimate> prevEstNew(model.size());
-    
     while (!frame.empty()) {
         Mat frameOrig;
         frame.copyTo(frameOrig);
@@ -296,7 +293,6 @@ int main(int argc, const char * argv[]) {
         VoteTally bestVT[model.size()];
         vector<estimate> bestEst(3);
         vector<int> bestImgBasis[model.size()];
-        vector<estimate> similarEst(3);
         
         // Try each line as a potential image basis
         for (int l = 0; l < lines.size(); l++) {
@@ -327,9 +323,6 @@ int main(int argc, const char * argv[]) {
                             bestVT[modelNum] = vt[v];
                             bestImgBasis[modelNum] = imgBasis;
                         }
-                        if (prevEst[modelNum].mostSimilar(est.pose, similarEst[modelNum].pose)) {
-                            similarEst[modelNum] = est;
-                        }
                     }
                 }
             }
@@ -342,8 +335,6 @@ int main(int argc, const char * argv[]) {
                 continue;
             }
             estimate est = bestEst[m];
-            if (similarEst[m].error != 10000) est = similarEst[m];
-            prevEst[m] = est;
             
             // * * * * * * * * * * * * * * * * *
             //      SHOW THE ESTIMATED POSE
