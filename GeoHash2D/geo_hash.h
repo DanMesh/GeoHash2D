@@ -147,6 +147,9 @@ private:
 
   //  Counters
   int   m_num_bin_entries, m_num_points;
+    
+public:
+  float width() { return m_width; };
 };
 
 

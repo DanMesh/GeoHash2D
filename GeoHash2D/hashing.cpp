@@ -55,7 +55,9 @@ vector<HashTable> hashing::voteForTables(vector<HashTable> tables, vector<Point2
         
         // Check for matches in each table
         for (int j = 0; j < tables.size(); j++) {
-            vector<point> points = tables[j].table.points_in_bin(pt);
+            //vector<point> points = tables[j].table.points_in_bin(pt);
+            float w = tables[j].table.width()/2;
+            vector<point> points = tables[j].table.points_in_rectangle(point(pt.x() - w, pt.y() - w), point(pt.x() + w, pt.y() + w));
             tables[j].votes += points.size();
             //if (points.size() > 0) tables[j].votes += 1;
         }
@@ -74,7 +76,10 @@ vector<VoteTally> hashing::voteWithBasis(geo_hash table, vector<Point2f> imgPoin
         Point2f bc = basisCoords(basis, imgPoints[i]);
         point pt = point(bc.x, bc.y);
         
-        vector<point> points = table.points_in_bin(pt);
+        //vector<point> points = table.points_in_bin(pt);
+        float w = table.width()/2;
+        vector<point> points = table.points_in_rectangle(point(pt.x() - w, pt.y() - w), point(pt.x() + w, pt.y() + w));
+        
         for (int p = 0; p < points.size(); p++) {
             model_basis mb = points[p].modelBasis();
             bool voted = false;

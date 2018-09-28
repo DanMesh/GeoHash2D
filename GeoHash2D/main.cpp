@@ -263,7 +263,6 @@ int main(int argc, const char * argv[]) {
             Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
             circle(plane, pt, 0, Scalar(255));
         }
-        imshow("plane", plane);
         
         // Detect line segments
         // TODO: either HoughLinesP or LSD (HLP gives better 'complete' lines)
@@ -283,7 +282,6 @@ int main(int argc, const char * argv[]) {
             circle(plane2, p1, 1, Scalar(0,0,255));
             circle(plane2, p2, 1, Scalar(0,0,255));
         }
-        imshow("plane2", plane2);
         
         // * * * * * * * * * * * * * *
         //      USING ONE TABLE
