@@ -374,7 +374,7 @@ int main(int argc, const char * argv[]) {
                 double areaError = area::areaError(silhouette, seg);
                 errorsNew[m].push_back(areaError);
                 if (areaError > worstErrorNew[m]) worstErrorNew[m] = areaError;
-                if (areaError > 99) failuresNew[m]++;
+                if (areaError > 50) failuresNew[m]++;
             }
         }
         
@@ -464,7 +464,7 @@ int main(int argc, const char * argv[]) {
                 double areaError = area::areaError(silhouette, seg);
                 errors[m].push_back(areaError);
                 if (areaError > worstError[m]) worstError[m] = areaError;
-                if (areaError > 99) failures[m]++;
+                if (areaError > 50) failures[m]++;
             }
         }
         imshow("Frame", frame);
