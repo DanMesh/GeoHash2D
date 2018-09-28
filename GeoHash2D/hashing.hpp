@@ -23,9 +23,9 @@ class VoteTally {
 public:
     VoteTally(model_basis mb_in) : mb(mb_in) {}
     VoteTally() {}
-    void vote() { votes++; };
+    void vote(float voteVal = 1) { votes += voteVal; };
     model_basis mb;
-    int votes = 0;
+    float votes = 0.0;
     
     bool operator > (const VoteTally& vt) const
     {
@@ -62,6 +62,9 @@ public:
     
     static geo_hash hashModelsIntoTable(geo_hash table, vector<Model *> model);
     static vector<Mat> getOrderedPoints2(geo_hash table, model_basis mb, vector<int> imgBasis, vector<Point3f> modelPoints, vector<Point2f> imgPoints);
+    
+private:
+    static float gaussianVote(point centre, point pt, float sigma);
 };
 
 #endif /* hashing_hpp */

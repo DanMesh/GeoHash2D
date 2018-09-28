@@ -300,3 +300,14 @@ vector<Mat> hashing::getOrderedPoints2(geo_hash table, model_basis mb, vector<in
     Mat imgTarget = pointsToMat2D(orderedImgPoints).t();
     return {newModel, imgTarget};
 }
+
+float hashing::gaussianVote(point centre, point pt, float sigma) {
+    // Returns the vote for a point based on the given centre,
+    // assuming a Gaussian probablility distribution with
+    // standard deviation = sigma
+    float dx = centre.x() - pt.x();
+    float dy = centre.y() - pt.y();
+    float sqErr = dx*dx + dy*dy;
+    
+    return exp(- sqErr / (2 * sigma * sigma));
+}
