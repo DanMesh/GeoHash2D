@@ -68,38 +68,8 @@ int main(int argc, const char * argv[]) {
     
     auto startHash = chrono::system_clock::now(); // Start hashing timer
     
-    vector<vector<HashTable>> tables;
     geo_hash onlyTable = geo_hash(binWidth);
     onlyTable = hashing::hashModelsIntoTable(onlyTable, model);
-    
-    for (int m = 0; m < model.size(); m++) {
-        
-        vector<HashTable> modelTables;
-        
-        vector<Point3f> modelPoints3D = model[m]->getVertices();
-        
-        // Convert 3D coordinates to 2D
-        vector<Point2f> modelPoints2D;
-        for (int i = 0; i < modelPoints3D.size(); i++) {
-            modelPoints2D.push_back( Point2f(modelPoints3D[i].x, modelPoints3D[i].y) );
-        }
-        
-        // A list of model basis pairs
-        vector<vector<int>> basisList = model[m]->getEdgeBasisList();
-        
-        // Get the visibility mask (should be all true)
-        vector<bool> vis = model[m]->visibilityMask(0, 0);
-        
-        for (int i = 0; i < basisList.size(); i++) {
-            vector<int> basisIndex = basisList[i];
-            
-            // Don't make a hash table if the basis isn't visible
-            if (!vis[basisIndex[0]] || !vis[basisIndex[1]]) continue;
-            
-            modelTables.push_back(hashing::createTable(basisIndex, modelPoints2D, vis, binWidth));
-        }
-        tables.push_back(modelTables);
-    }
     
     auto endHash = chrono::system_clock::now();
     chrono::duration<double> timeHash = endHash-startHash;
@@ -217,12 +187,6 @@ int main(int argc, const char * argv[]) {
     vector<double> worstError = vector<double>(model.size());
     vector<int> failures(model.size());
     
-    vector<double> timesNew = {};
-    double longestTimeNew = 0.0;
-    vector<vector<double>> errorsNew = vector<vector<double>>(model.size());
-    vector<double> worstErrorNew = vector<double>(model.size());
-    vector<int> failuresNew(model.size());
-    
     while (!frame.empty()) {
         Mat frameOrig;
         frame.copyTo(frameOrig);
@@ -283,9 +247,10 @@ int main(int argc, const char * argv[]) {
             circle(plane2, p2, 1, Scalar(0,0,255));
         }
         
-        // * * * * * * * * * * * * * *
-        //      USING ONE TABLE
-        // * * * * * * * * * * * * * *
+        // * * * * * * * * * * * * * * * *
+        //      FIND CORRESPONDENCES
+        //        WITH HASH TABLE
+        // * * * * * * * * * * * * * * * *
         
         auto startRecog = chrono::system_clock::now(); // Start recognition timer
         
@@ -372,110 +337,21 @@ int main(int argc, const char * argv[]) {
                 Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
                 fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
                 double areaError = area::areaError(silhouette, seg);
-                errorsNew[m].push_back(areaError);
-                if (areaError > worstErrorNew[m]) worstErrorNew[m] = areaError;
-                if (areaError > 50) failuresNew[m]++;
-            }
-        }
-        
-        auto endRecog2 = chrono::system_clock::now();
-        chrono::duration<double> timeRecog2 = endRecog2-startRecog;
-        double timeNew = timeRecog2.count()*1000.0;
-        cout << "Recognition time = " << timeNew << " ms" << endl;
-        
-        timesNew.push_back(timeNew);
-        if (timeNew > longestTimeNew) longestTimeNew = timeNew;
-        
-        // * * * * * * * * * * * * * *
-        //      USING MULTIPLE TABLES
-        // * * * * * * * * * * * * * *
-        
-        // For each model...
-        for (int m = 0; m < model.size(); m++) {
-            
-            estimate bestEst = estimate({0,0,0,0,0,0}, 10000, 100);  // The best estimated pose so far
-            int edge = 0;   // The detected edge to use as a basis
-            // LATER: try choose whatever's closest to the previous usable basis
-            
-            while (edge < lines.size()) {
-                vector<int> imgBasis = {2*edge, 2*edge +1};
-                
-                // Vote for the tables using the given basis
-                vector<HashTable> votedTables = hashing::voteForTables(tables[m], imgPoints, imgBasis);
-                int maxVotes = votedTables[0].votes;
-                
-                for (int i = 0; i < votedTables.size(); i++) {
-                    HashTable t = votedTables[i];
-                    if (t.votes < MIN(200, maxVotes)) break;
-                    
-                    vector<Mat> orderedPoints = hashing::getOrderedPoints(imgBasis, t, model[m]->getVertices(), imgPoints);
-                    
-                    Mat newModel = orderedPoints[0];
-                    Mat newTarget = orderedPoints[1];
-                    
-                    // Require at least 4 correspondences
-                    if (newModel.cols < 4) continue;
-                    
-                    vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
-                    vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
-                    
-                    // Use least squares to estimate pose
-                    estimate est = lsq::poseEstimate2D({0,0,0}, newModel, newTarget);
-                    if (est.error < bestEst.error) bestEst = est;
-                }
-                edge++;
-            }
-            
-            // * * * * * * * * * * * * * * * * *
-            //      SHOW THE ESTIMATED POSE
-            // * * * * * * * * * * * * * * * * *
-            
-            Mat modelMat = model[m]->pointsToMat();
-            vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
-            
-            // Find the coordintes using the LSQ result
-            Vec3f poseLSQ = {bestEst.pose[0] - Ox, bestEst.pose[1] - Oy, bestEst.pose[5]};
-            Mat modelInPlane = lsq::projection2D(poseLSQ, modelMat);
-            
-            // Project to the camera
-            y = P * modelInPlane;
-            z = y.row(2);
-            vconcat(z, z, norm);
-            vconcat(norm, z, norm);
-            divide(y, norm, y);
-            
-            // Draw the shape
-            vector<Point> contour;
-            for (int i = 0; i < y.cols; i++) {
-                contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
-            }
-            
-            const Point *pts = (const cv::Point*) Mat(contour).data;
-            int npts = Mat(contour).rows;
-            
-            polylines(frame, &pts, &npts, 1, true, Scalar(0, 0, 255));
-            
-            // Measure and report the area error
-            if (REPORT_ERRORS) {
-                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
-                cvtColor(seg, seg, CV_BGR2GRAY);
-                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
-                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-                double areaError = area::areaError(silhouette, seg);
                 errors[m].push_back(areaError);
                 if (areaError > worstError[m]) worstError[m] = areaError;
                 if (areaError > 50) failures[m]++;
             }
         }
-        imshow("Frame", frame);
         
         auto endRecog = chrono::system_clock::now();
-        chrono::duration<double> timeRecog = endRecog-endRecog2;
+        chrono::duration<double> timeRecog = endRecog-startRecog;
         double time = timeRecog.count()*1000.0;
         cout << "Recognition time = " << time << " ms" << endl;
         
         times.push_back(time);
         if (time > longestTime) longestTime = time;
+        
+        imshow("Frame", frame);
         
         // Get next frame
         cap.grab();
@@ -486,18 +362,10 @@ int main(int argc, const char * argv[]) {
     
     vector<double> meanTime, stdDevTime;
     meanStdDev(times, meanTime, stdDevTime);
-    
-    cout << endl << endl;
-    cout << "No. frames   = " << times.size() << endl;
-    cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
-    cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
-    cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
-    
-    meanStdDev(timesNew, meanTime, stdDevTime);
     cout << endl << "NEW METHOD:" << endl;
     cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
     cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
-    cout << "Longest time = " << longestTimeNew << " ms     " << 1000.0/longestTimeNew << " fps" << endl;
+    cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
     
     // Report errors
     if (!REPORT_ERRORS) return 0;
@@ -506,14 +374,6 @@ int main(int argc, const char * argv[]) {
         vector<double> meanError, stdDevError;
         meanStdDev(errors[m], meanError, stdDevError);
         printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstError[m], failures[m]);
-    }
-    
-    cout << endl << "NEW METHOD:";
-    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst     Failures" << endl;
-    for (int m = 0; m < model.size(); m++) {
-        vector<double> meanError, stdDevError;
-        meanStdDev(errorsNew[m], meanError, stdDevError);
-        printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstErrorNew[m], failuresNew[m]);
     }
     
     return 0;
