@@ -41,6 +41,52 @@ Point Whisker::closestEdgePoint(Mat edges, int maxDist) {
     return bestPt;
 }
 
+Point Whisker::closestEdgePoint2(Mat canny, int maxDist) {
+    Point endPos = centre + Point(maxDist*normal.x, maxDist*normal.y);
+    Point endNeg = centre - Point(maxDist*normal.x, maxDist*normal.y);
+    if (centre.x < 0 || centre.y < 0 || centre.x >= canny.cols || centre.y >= canny.rows) return Point(-1,-1);
+    if (canny.at<uchar>(centre) > 0) return centre;
+    
+    LineIterator liPos(canny, centre, endPos);
+    LineIterator liNeg(canny, centre, endNeg);
+    for (int i = 0; i < MIN(liPos.count, liNeg.count); i++, ++liPos, ++liNeg) {
+        if (canny.at<uchar>(liPos.pos()) > 0) {
+            // If exactly in between 2 edges, discard this whisker
+            if (canny.at<uchar>(liNeg.pos()) > 0) return Point(-1,-1);
+            return liPos.pos();
+        }
+        if (canny.at<uchar>(liNeg.pos()) > 0) return liNeg.pos();
+    }
+    return Point(-1,-1);
+}
+
+Point Whisker::closestEdgePoint2(Mat canny[3], int maxDist) {
+    Point endPos = centre + Point(maxDist*normal.x, maxDist*normal.y);
+    Point endNeg = centre - Point(maxDist*normal.x, maxDist*normal.y);
+    if (centre.x < 0 || centre.y < 0 || centre.x >= canny[0].cols || centre.y >= canny[0].rows) return Point(-1,-1);
+    if (canny[0].at<uchar>(centre) > 0) return centre;
+    if (canny[1].at<uchar>(centre) > 0) return centre;
+    if (canny[2].at<uchar>(centre) > 0) return centre;
+    
+    LineIterator liPos(canny[0], centre, endPos);
+    LineIterator liNeg(canny[0], centre, endNeg);
+    for (int i = 0; i < MIN(liPos.count, liNeg.count); i++, ++liPos, ++liNeg) {
+        if ((canny[0].at<uchar>(liPos.pos()) > 0) ||
+            (canny[1].at<uchar>(liPos.pos()) > 0) ||
+            (canny[2].at<uchar>(liPos.pos()) > 0)) {
+            // If exactly in between 2 edges, discard this whisker
+            if ((canny[0].at<uchar>(liNeg.pos()) > 0) ||
+                (canny[1].at<uchar>(liNeg.pos()) > 0) ||
+                (canny[2].at<uchar>(liNeg.pos()) > 0)) return Point(-1,-1);
+            return liPos.pos();
+        }
+        if ((canny[0].at<uchar>(liNeg.pos()) > 0) ||
+            (canny[1].at<uchar>(liNeg.pos()) > 0) ||
+            (canny[2].at<uchar>(liNeg.pos()) > 0)) return liNeg.pos();
+    }
+    return Point(-1,-1);
+}
+
 
 // * * * * * * * * * * * * * * *
 //      ASM
@@ -72,7 +118,7 @@ vector<Whisker> ASM::projectToWhiskers(Model * model, Vec6f pose, Mat K) {
     
     Mat modelMat = model->pointsToMat();
     
-    vector<bool> vis = model->visibilityMask(pose[3], pose[4]);
+    vector<bool> vis = model->visibilityMask(pose);
     
     vector<vector<int>> edges = model->getEdgeBasisList();
     
@@ -82,13 +128,12 @@ vector<Whisker> ASM::projectToWhiskers(Model * model, Vec6f pose, Mat K) {
         // Get the edge endpoints
         Mat p0 = modelMat.col(edges[i][0]);
         Mat p1 = modelMat.col(edges[i][1]);
-        
-        // Calculate the edge vector and length
         Mat edge = p1 - p0;
-        double length = sqrt(edge.dot(edge));
+        double length = sqrt(edge.dot(edge));   // The length of the edge on the model
+        double projLength = length;             // The length of the projected edge
         
         // Divide up the edge
-        int numWhiskers = MAX(1, ceil(length/WHISKER_SPACING));
+        int numWhiskers = MAX(1, ceil(projLength/WHISKER_SPACING));
         double spacing = length/(numWhiskers+1);
         
         Mat centres;
