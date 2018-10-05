@@ -21,6 +21,8 @@
 
 #include <chrono>
 #include <iostream>
+#include <fstream>
+
 
 using namespace std;
 using namespace cv;
@@ -40,7 +42,9 @@ static Mat K = Mat(3,3, CV_32FC1, intrinsicMatrix);
 static float binWidth = 0.2;
 
 static string dataFolder = "../../../../../data/";
+static string logFolder = "../../../../../logs/";
 
+static bool LOGGING = true;
 static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
 
 
@@ -59,8 +63,8 @@ int main(int argc, const char * argv[]) {
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
     
-    Model * calibModel = modelArrow;
-    vector<Model *> model = {modelArrow, modelDog, modelRect};
+    vector<Model *> model = {modelDog};
+    Model * calibModel = model[0];
     
     // * * * * * * * * * * * * * * * * *
     //   HASHING
@@ -80,8 +84,8 @@ int main(int argc, const char * argv[]) {
     // * * * * * * * * * * * * * * * * *
     
     Mat frame;
-    String filename = "Trio_1.avi";
-    VideoCapture cap(dataFolder + filename);
+    String filename = "NO_Dog_2";
+    VideoCapture cap(dataFolder + filename + ".avi");
     //VideoCapture cap(0); waitKey(1000);   // Uncomment this line to try live tracking
     if(!cap.isOpened()) return -1;
     
@@ -176,6 +180,16 @@ int main(int argc, const char * argv[]) {
     
     waitKey(0);
     
+    // * * * * * * * * * * * * * * * * *
+    //   SET UP LOGGER
+    // * * * * * * * * * * * * * * * * *
+    ofstream log;
+    if (LOGGING) {
+        log.open(logFolder + filename + "_GH.csv");
+        log << "Time";
+        for (int m = 0; m < model.size(); m++) log << ";error_Area_ " << m << ";error_LSQ_ " << m << ";tX_ " << m << ";tY_ " << m << ";tZ_ " << m << ";rX_ " << m << ";rY_ " << m << ";rZ_ " << m;
+        log << endl;
+    }
     
     // * * * * * * * * * * * * * * * * *
     //   INPUT LOOP
@@ -183,7 +197,7 @@ int main(int argc, const char * argv[]) {
     
     vector<double> times = {};
     double longestTime = 0.0;
-    vector<vector<double>> errors = vector<vector<double>>(model.size());
+    vector<vector<double>> errorArea = vector<vector<double>>(model.size());
     vector<double> worstError = vector<double>(model.size());
     vector<int> failures(model.size());
     
@@ -256,7 +270,7 @@ int main(int argc, const char * argv[]) {
         
         // Check for entries in the hash table
         VoteTally bestVT[model.size()];
-        vector<estimate> bestEst(3);
+        vector<estimate> bestEst(model.size());
         vector<int> bestImgBasis[model.size()];
         
         // Try each line as a potential image basis
@@ -294,7 +308,7 @@ int main(int argc, const char * argv[]) {
         }
         
         
-        for (int m = 0; m < 3; m++) {
+        for (int m = 0; m < model.size(); m++) {
             if (bestImgBasis[m].empty()) {
                 cout << "Error! Empty image basis!" << endl;
                 continue;
@@ -337,10 +351,11 @@ int main(int argc, const char * argv[]) {
                 Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
                 fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
                 double areaError = area::areaError(silhouette, seg);
-                errors[m].push_back(areaError);
+                errorArea[m].push_back(areaError);
                 if (areaError > worstError[m]) worstError[m] = areaError;
                 if (areaError > 50) failures[m]++;
             }
+            
         }
         
         auto endRecog = chrono::system_clock::now();
@@ -350,6 +365,16 @@ int main(int argc, const char * argv[]) {
         
         times.push_back(time);
         if (time > longestTime) longestTime = time;
+        
+        // Log time and errors
+        if (LOGGING) {
+            log << time;
+            for (int m = 0; m < model.size(); m++) {
+                log << ";" << errorArea[m].back() << ";" << bestEst[m].error;
+                for (int i = 0; i < 6; i++) log << ";" << bestEst[m].pose[i];
+            }
+            log << endl;
+        }
         
         imshow("Frame", frame);
         
@@ -372,7 +397,7 @@ int main(int argc, const char * argv[]) {
     cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst     Failures" << endl;
     for (int m = 0; m < model.size(); m++) {
         vector<double> meanError, stdDevError;
-        meanStdDev(errors[m], meanError, stdDevError);
+        meanStdDev(errorArea[m], meanError, stdDevError);
         printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstError[m], failures[m]);
     }
     
