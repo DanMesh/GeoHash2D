@@ -307,11 +307,10 @@ int main(int argc, const char * argv[]) {
             }
         }
         
-        
         for (int m = 0; m < model.size(); m++) {
             if (bestImgBasis[m].empty()) {
                 cout << "Error! Empty image basis!" << endl;
-                continue;
+                //continue;
             }
             estimate est = bestEst[m];
             
@@ -344,18 +343,6 @@ int main(int argc, const char * argv[]) {
             
             polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
             
-            // Measure and report the area error
-            if (REPORT_ERRORS) {
-                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
-                cvtColor(seg, seg, CV_BGR2GRAY);
-                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
-                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-                double areaError = area::areaError(silhouette, seg);
-                errorArea[m].push_back(areaError);
-                if (areaError > worstError[m]) worstError[m] = areaError;
-                if (areaError > 50) failures[m]++;
-            }
-            
         }
         
         auto endRecog = chrono::system_clock::now();
@@ -365,6 +352,45 @@ int main(int argc, const char * argv[]) {
         
         times.push_back(time);
         if (time > longestTime) longestTime = time;
+        
+        // Measure and report the area errors
+        if (REPORT_ERRORS) {
+            for (int m = 0; m < model.size(); m++) {
+                estimate est = bestEst[m];
+                
+                Mat modelMat = model[m]->pointsToMat();
+                vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
+                
+                // Find the coordintes using the LSQ result
+                Vec3f poseLSQ = {est.pose[0] - Ox, est.pose[1] - Oy, est.pose[5]};
+                Mat modelInPlane = lsq::projection2D(poseLSQ, modelMat);
+                
+                // Project to the camera
+                y = P * modelInPlane;
+                z = y.row(2);
+                vconcat(z, z, norm);
+                vconcat(norm, z, norm);
+                divide(y, norm, y);
+                
+                // Draw the shape
+                vector<Point> contour;
+                for (int i = 0; i < y.cols; i++) {
+                    contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
+                }
+                
+                const Point *pts = (const cv::Point*) Mat(contour).data;
+                int npts = Mat(contour).rows;
+                
+                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
+                cvtColor(seg, seg, CV_BGR2GRAY);
+                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
+                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
+                double areaError = area::areaError(silhouette, seg);
+                errorArea[m].push_back(areaError);
+                if (areaError > worstError[m]) worstError[m] = areaError;
+                if (areaError > 50) failures[m]++;
+            }
+        }
         
         // Log time and errors
         if (LOGGING) {
