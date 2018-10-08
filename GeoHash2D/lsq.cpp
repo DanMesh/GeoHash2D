@@ -8,6 +8,8 @@
 
 #include "lsq.hpp"
 
+const float lsq::ERROR_THRESHOLD = 0.5;
+
 estimate lsq::poseEstimateLM(Vec6f pose1, Mat model, Mat target, Mat K, int maxIter) {
     // pose1: imitial pose parameters
     // model: model points in full homogeneous coords
@@ -91,6 +93,7 @@ Mat lsq::projection(Vec6f pose, Mat model, Mat K) {
 }
 
 float lsq::projectionError(Mat target, Mat proj) {
+    int numPoints = proj.cols;
     transpose(proj.rowRange(0, 2), proj);
     
     Mat e;
@@ -101,7 +104,7 @@ float lsq::projectionError(Mat target, Mat proj) {
     Mat eT;
     transpose(e, eT);
     e = eT * e;
-    return e.at<float>(0);
+    return e.at<float>(0) / numPoints;
 }
 
 Mat lsq::pointsAsCol(Mat points) {
