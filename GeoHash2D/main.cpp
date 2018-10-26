@@ -44,7 +44,8 @@ static float binWidth = 0.2;
 static string dataFolder = "../../../../../data/";
 static string logFolder = "../../../../../logs/";
 
-static bool LOGGING = true;
+static bool DEBUGGING = true;
+static bool LOGGING = false;
 static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
 
 
@@ -62,8 +63,9 @@ int main(int argc, const char * argv[]) {
     Model * modelRect = new Rectangle(60, 80, Scalar(20, 65, 165));
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
+    Model * modelDiamond = new Diamond(Scalar(13, 134, 161));
     
-    vector<Model *> model = {modelDog};
+    vector<Model *> model = {modelArrow};
     Model * calibModel = model[0];
     
     // * * * * * * * * * * * * * * * * *
@@ -84,7 +86,7 @@ int main(int argc, const char * argv[]) {
     // * * * * * * * * * * * * * * * * *
     
     Mat frame;
-    String filename = "NO_Dog_2";
+    String filename = "C_Arrow_1";
     VideoCapture cap(dataFolder + filename + ".avi");
     //VideoCapture cap(0); waitKey(1000);   // Uncomment this line to try live tracking
     if(!cap.isOpened()) return -1;
@@ -208,6 +210,8 @@ int main(int argc, const char * argv[]) {
         // * * * * * * * * * * * * * *
         //      RECOGNITION
         // * * * * * * * * * * * * * *
+        
+        auto startRecog = chrono::system_clock::now(); // Start recognition timer
                 
         // Detect edges
         Mat canny, cannyTest;
@@ -247,8 +251,8 @@ int main(int argc, const char * argv[]) {
         vector<Vec4i> lines = orange::borderLines(plane);
         vector<Point2f> imgPoints;
         
-        Mat plane2;
-        cvtColor(plane, plane2, CV_GRAY2BGR);
+        Mat plane2 = Mat::zeros(plane.size(), frame.type());
+        //cvtColor(plane, plane2, CV_GRAY2BGR);
         // Convert the edges to a set of points
         for (int i = 0; i < lines.size(); i++) {
             Point p1 = Point(lines[i][0], lines[i][1]);
@@ -256,17 +260,16 @@ int main(int argc, const char * argv[]) {
             imgPoints.push_back(Point2f(p1));
             imgPoints.push_back(Point2f(p2));
             
-            line(plane2, p1, p2, Scalar(0,255,0));
-            circle(plane2, p1, 1, Scalar(0,0,255));
-            circle(plane2, p2, 1, Scalar(0,0,255));
+            line(plane2, p1, p2, Scalar(150,150,150));
+            circle(plane2, p1, 2, Scalar(0,0,255), -1);
+            circle(plane2, p2, 2, Scalar(0,0,255), -1);
         }
+        if (DEBUGGING) imshow("lines", plane2);
         
         // * * * * * * * * * * * * * * * *
         //      FIND CORRESPONDENCES
         //        WITH HASH TABLE
         // * * * * * * * * * * * * * * * *
-        
-        auto startRecog = chrono::system_clock::now(); // Start recognition timer
         
         // Check for entries in the hash table
         VoteTally bestVT[model.size()];
@@ -397,6 +400,7 @@ int main(int argc, const char * argv[]) {
             log << time;
             for (int m = 0; m < model.size(); m++) {
                 log << ";" << errorArea[m].back() << ";" << bestEst[m].error;
+                bestEst[m].pose[2] = lines.size(); // Log number of lines in z coord
                 for (int i = 0; i < 6; i++) log << ";" << bestEst[m].pose[i];
             }
             log << endl;
@@ -405,7 +409,6 @@ int main(int argc, const char * argv[]) {
         imshow("Frame", frame);
         
         // Get next frame
-        cap.grab();
         cap >> frame;
         
         if (waitKey(1) == 'q') break;
