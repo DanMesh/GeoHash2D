@@ -8,6 +8,8 @@
 
 #include "lsq.hpp"
 
+const float lsq::ERROR_THRESHOLD = 0.5;
+
 estimate lsq::poseEstimateLM(Vec6f pose1, Mat model, Mat target, Mat K, int maxIter) {
     // pose1: imitial pose parameters
     // model: model points in full homogeneous coords
@@ -91,6 +93,7 @@ Mat lsq::projection(Vec6f pose, Mat model, Mat K) {
 }
 
 float lsq::projectionError(Mat target, Mat proj) {
+    int numPoints = proj.cols;
     transpose(proj.rowRange(0, 2), proj);
     
     Mat e;
@@ -101,7 +104,7 @@ float lsq::projectionError(Mat target, Mat proj) {
     Mat eT;
     transpose(e, eT);
     e = eT * e;
-    return e.at<float>(0);
+    return e.at<float>(0) / numPoints;
 }
 
 Mat lsq::pointsAsCol(Mat points) {
@@ -139,6 +142,23 @@ Vec6f estimate::standardisePose(Vec6f pose) {
         while (pose[i] <= -CV_PI)   pose[i] += CV_2PI;
     }
     return pose;
+}
+
+bool estimate::mostSimilar(Vec6f poseA, Vec6f poseB, float alpha) {
+    // Returns true if poseA is more similar to this pose than poseB
+    // 'alpha' scales the error in the rotation (due to different units)
+    Mat diff;
+    hconcat(Mat(poseA - this->pose), Mat(poseB - this->pose), diff);
+    Mat tra = diff.rowRange(0, 3);
+    Mat rot = diff.rowRange(3, 6);
+        
+    tra = tra.t()*tra;
+    float traDiff = tra.at<float>(1,1) - tra.at<float>(0,0);
+    
+    rot = rot.t()*rot;
+    float rotDiff = rot.at<float>(1,1) - rot.at<float>(0,0);
+    
+    return (traDiff + alpha * rotDiff) >= 0;
 }
 
 

@@ -24,7 +24,9 @@ using namespace cv;
 class estimate {
 public:
     estimate( Vec6f pose_in, float error_in, float iter_in ) : pose(standardisePose(pose_in)), error(error_in), iterations(iter_in) {}
+    estimate() : error(10000), iterations(100) {}
     void print() {cout << pose << "\nIterations = " << iterations << "\nError = " << error << "\n\n";}
+    bool mostSimilar(Vec6f poseA, Vec6f poseB, float alpha = 10);
     
     bool operator < (const estimate& e) const
     {
@@ -68,7 +70,7 @@ public:
  */
 public:
     static const int MAX_ITERATIONS = 20;
-    static const int ERROR_THRESHOLD = 10;
+    static const float ERROR_THRESHOLD;
 
 };
 

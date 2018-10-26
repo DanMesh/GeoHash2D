@@ -27,8 +27,10 @@ public:
     Point2f normal;
     Mat modelCentre;
     Point closestEdgePoint(Mat edges, int maxDist = MAX_DIST);
+    Point closestEdgePoint2(Mat canny, int maxDist = MAX_DIST);
+    Point closestEdgePoint2(Mat canny[3], int maxDist = MAX_DIST);
 private:
-    static const int MAX_DIST = 40;
+    static const int MAX_DIST = 45;
     static constexpr double CROSS_EPS = 1;
 };
 
@@ -39,7 +41,7 @@ public:
     static double getArea(InputArray img);
     static vector<Whisker> projectToWhiskers(Model * model, Vec6f pose, Mat K);
 private:
-    static constexpr double WHISKER_SPACING = 40;
+    static constexpr double WHISKER_SPACING = 20;
 };
 
 #endif /* asm_hpp */

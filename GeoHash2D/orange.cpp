@@ -23,17 +23,13 @@ vector<Vec4i> orange::borderLines(Mat img) {
     double res_rho = 1;
     double res_theta = CV_PI/180;
     int threshold = 30;
-    double minLineLength = 10;
-    double maxLineGap = 30;
-    
-    // Edge detection
-    Mat dst;
-    Canny(img, dst, 70, 210, 3, true);
+    double minLineLength = 5;
+    double maxLineGap = 10;
     
     // Line detection
     vector<Vec4i> lines;
-    while ((lines.size() < 4) && (threshold > 0)) {
-        HoughLinesP(dst, lines, res_rho, res_theta, threshold, minLineLength, maxLineGap);
+    while ((lines.size() < 3) && (threshold > 0)) {
+        HoughLinesP(img, lines, res_rho, res_theta, threshold, minLineLength, maxLineGap);
         threshold -= 5;
     }
     
@@ -50,7 +46,7 @@ Mat orange::segmentByColour(Mat img, Scalar colour) {
     Vec3b hsvPixel(hsv.at<Vec3b>(0,0));
     
     // Establish H, S, V ranges
-    int thr[3] = {30, 100, 150};
+    int thr[3] = {10, 100, 150};
     Scalar minHSV = Scalar(hsvPixel.val[0] - thr[0], hsvPixel.val[1] - thr[1], hsvPixel.val[2] - thr[2]);
     Scalar maxHSV = Scalar(hsvPixel.val[0] + thr[0], hsvPixel.val[1] + thr[1], hsvPixel.val[2] + thr[2]);
     

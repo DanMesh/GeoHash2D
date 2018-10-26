@@ -21,6 +21,8 @@
 
 #include <chrono>
 #include <iostream>
+#include <fstream>
+
 
 using namespace std;
 using namespace cv;
@@ -37,10 +39,13 @@ static float intrinsicMatrix[3][3] = {
 };
 static Mat K = Mat(3,3, CV_32FC1, intrinsicMatrix);
 
-static float binWidth = 1;
+static float binWidth = 0.2;
 
 static string dataFolder = "../../../../../data/";
+static string logFolder = "../../../../../logs/";
 
+static bool DEBUGGING = true;
+static bool LOGGING = false;
 static bool REPORT_ERRORS = true; // Whether to report the area error (slows performance)
 
 
@@ -58,9 +63,10 @@ int main(int argc, const char * argv[]) {
     Model * modelRect = new Rectangle(60, 80, Scalar(20, 65, 165));
     Model * modelDog = new Dog(Scalar(19, 89, 64));
     Model * modelArrow = new Arrow(Scalar(108, 79, 28));
+    Model * modelDiamond = new Diamond(Scalar(13, 134, 161));
     
-    Model * calibModel = modelArrow;
-    vector<Model *> model = {modelArrow, modelDog, modelRect};
+    vector<Model *> model = {modelArrow};
+    Model * calibModel = model[0];
     
     // * * * * * * * * * * * * * * * * *
     //   HASHING
@@ -68,36 +74,8 @@ int main(int argc, const char * argv[]) {
     
     auto startHash = chrono::system_clock::now(); // Start hashing timer
     
-    vector<vector<HashTable>> tables;
-    
-    for (int m = 0; m < model.size(); m++) {
-        
-        vector<HashTable> modelTables;
-        
-        vector<Point3f> modelPoints3D = model[m]->getVertices();
-        
-        // Convert 3D coordinates to 2D
-        vector<Point2f> modelPoints2D;
-        for (int i = 0; i < modelPoints3D.size(); i++) {
-            modelPoints2D.push_back( Point2f(modelPoints3D[i].x, modelPoints3D[i].y) );
-        }
-        
-        // A list of model basis pairs
-        vector<vector<int>> basisList = model[m]->getEdgeBasisList();
-        
-        // Get the visibility mask (should be all true)
-        vector<bool> vis = model[m]->visibilityMask(0, 0);
-        
-        for (int i = 0; i < basisList.size(); i++) {
-            vector<int> basisIndex = basisList[i];
-            
-            // Don't make a hash table if the basis isn't visible
-            if (!vis[basisIndex[0]] || !vis[basisIndex[1]]) continue;
-            
-            modelTables.push_back(hashing::createTable(basisIndex, modelPoints2D, vis, binWidth));
-        }
-        tables.push_back(modelTables);
-    }
+    geo_hash onlyTable = geo_hash(binWidth);
+    onlyTable = hashing::hashModelsIntoTable(onlyTable, model);
     
     auto endHash = chrono::system_clock::now();
     chrono::duration<double> timeHash = endHash-startHash;
@@ -108,8 +86,8 @@ int main(int argc, const char * argv[]) {
     // * * * * * * * * * * * * * * * * *
     
     Mat frame;
-    String filename = "Trio_1.avi";
-    VideoCapture cap(dataFolder + filename);
+    String filename = "C_Arrow_1";
+    VideoCapture cap(dataFolder + filename + ".avi");
     //VideoCapture cap(0); waitKey(1000);   // Uncomment this line to try live tracking
     if(!cap.isOpened()) return -1;
     
@@ -204,6 +182,16 @@ int main(int argc, const char * argv[]) {
     
     waitKey(0);
     
+    // * * * * * * * * * * * * * * * * *
+    //   SET UP LOGGER
+    // * * * * * * * * * * * * * * * * *
+    ofstream log;
+    if (LOGGING) {
+        log.open(logFolder + filename + "_GH.csv");
+        log << "Time";
+        for (int m = 0; m < model.size(); m++) log << ";error_Area_ " << m << ";error_LSQ_ " << m << ";tX_ " << m << ";tY_ " << m << ";tZ_ " << m << ";rX_ " << m << ";rY_ " << m << ";rZ_ " << m;
+        log << endl;
+    }
     
     // * * * * * * * * * * * * * * * * *
     //   INPUT LOOP
@@ -211,104 +199,123 @@ int main(int argc, const char * argv[]) {
     
     vector<double> times = {};
     double longestTime = 0.0;
-    vector<vector<double>> errors = vector<vector<double>>(model.size());
+    vector<vector<double>> errorArea = vector<vector<double>>(model.size());
     vector<double> worstError = vector<double>(model.size());
+    vector<int> failures(model.size());
     
     while (!frame.empty()) {
+        Mat frameOrig;
+        frame.copyTo(frameOrig);
         
-        // * * * * * * * * * * * * * * * * *
-        //   ESTIMATE POSES OF ALL MODELS
-        // * * * * * * * * * * * * * * * * *
+        // * * * * * * * * * * * * * *
+        //      RECOGNITION
+        // * * * * * * * * * * * * * *
         
         auto startRecog = chrono::system_clock::now(); // Start recognition timer
+                
+        // Detect edges
+        Mat canny, cannyTest;
+        Canny(frame, canny, 40, 120);
+        
+        // Map edge points to the 2D plane
+        // TODO: this could also happen after detecting line segments - try it, might be faster
+        
+        // Convert the canny image to a list of edge coordinates
+        Mat edges;
+        findNonZero(canny, edges);
+        edges = edges.t();
+        Mat edgesRows[2];
+        split(edges, edgesRows);
+        vconcat(edgesRows[0], edgesRows[1], edges);
+        vconcat(edges, Mat::ones(1, edges.cols, edges.type()), edges);
+        edges.convertTo(edges, P.type());
+        
+        // Convert image coords to plane coords
+        Mat y = P.inv() * edges;
+        Mat z = y.row(2);
+        Mat norm;
+        vconcat(z, z, norm);
+        vconcat(norm, z, norm);
+        divide(y, norm, y);
+        
+        // Draw the 2D plane
+        Mat plane = Mat::zeros(canny.rows, canny.cols, canny.type());
+        
+        for (int i = 0; i < y.cols; i++) {
+            Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
+            circle(plane, pt, 0, Scalar(255));
+        }
+        
+        // Detect line segments
+        // TODO: either HoughLinesP or LSD (HLP gives better 'complete' lines)
+        vector<Vec4i> lines = orange::borderLines(plane);
+        vector<Point2f> imgPoints;
+        
+        Mat plane2 = Mat::zeros(plane.size(), frame.type());
+        //cvtColor(plane, plane2, CV_GRAY2BGR);
+        // Convert the edges to a set of points
+        for (int i = 0; i < lines.size(); i++) {
+            Point p1 = Point(lines[i][0], lines[i][1]);
+            Point p2 = Point(lines[i][2], lines[i][3]);
+            imgPoints.push_back(Point2f(p1));
+            imgPoints.push_back(Point2f(p2));
+            
+            line(plane2, p1, p2, Scalar(150,150,150));
+            circle(plane2, p1, 2, Scalar(0,0,255), -1);
+            circle(plane2, p2, 2, Scalar(0,0,255), -1);
+        }
+        if (DEBUGGING) imshow("lines", plane2);
+        
+        // * * * * * * * * * * * * * * * *
+        //      FIND CORRESPONDENCES
+        //        WITH HASH TABLE
+        // * * * * * * * * * * * * * * * *
+        
+        // Check for entries in the hash table
+        VoteTally bestVT[model.size()];
+        vector<estimate> bestEst(model.size());
+        vector<int> bestImgBasis[model.size()];
+        
+        // Try each line as a potential image basis
+        for (int l = 0; l < lines.size(); l++) {
+            vector<int> imgBasis = {2*l, 2*l + 1};
+            vector<VoteTally> vt = hashing::voteWithBasis(onlyTable, imgPoints, imgBasis);
+            
+            // Find the best model basis for each model
+            vector<bool> gotModel(model.size());    // Whether each model has been found for this image basis
+            for (int v = 0; v < vt.size(); v++) {
+                int modelNum = vt[v].mb.model;
+                if (!gotModel[modelNum]) {
+                    gotModel[modelNum] = true;
+                    if (bestVT[modelNum].votes <= vt[v].votes) {
+                        
+                        
+                        // Do LSQ to see what the error is
+                        vector<Mat> orderedPoints = hashing::getOrderedPoints2(onlyTable, vt[v].mb, imgBasis, model[modelNum]->getVertices(), imgPoints);
+                        Mat newModel = orderedPoints[0];
+                        Mat newTarget = orderedPoints[1];
+                        
+                        vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
+                        vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
+                        
+                        // Use least squares to estimate pose
+                        estimate est = lsq::poseEstimate2D({0,0,0}, newModel, newTarget);
+                        if (est.error < bestEst[modelNum].error) {
+                            bestEst[modelNum] = est;
+                            bestVT[modelNum] = vt[v];
+                            bestImgBasis[modelNum] = imgBasis;
+                        }
+                    }
+                }
+            }
+        }
         
         for (int m = 0; m < model.size(); m++) {
-            
-            // Segment the image
-            Mat seg = orange::segmentByColour(frame, model[m]->colour);
-            cvtColor(seg, seg, CV_BGR2GRAY);
-            threshold(seg, seg, 0, 255, CV_THRESH_BINARY);
-            
-            // Convert the segmented image to a list of foreground coordinates
-            Mat target;
-            findNonZero(seg, target);
-            target = target.t();
-            Mat targetRows[2];
-            split(target, targetRows);
-            vconcat(targetRows[0], targetRows[1], target);
-            vconcat(target, Mat::ones(1, target.cols, target.type()), target);
-            target.convertTo(target, P.type());
-            
-            // Convert image coords to plane coords
-            Mat y = P.inv() * target;
-            Mat z = y.row(2);
-            Mat norm;
-            vconcat(z, z, norm);
-            vconcat(norm, z, norm);
-            divide(y, norm, y);
-            
-            // Draw the 2D plane
-            Mat plane = Mat::zeros(frame.rows, frame.cols, frame.type());
-            
-            for (int i = 0; i < y.cols; i++) {
-                Point pt = Point(y.at<float>(0, i) + Ox, y.at<float>(1, i) + Oy);
-                circle(plane, pt, 0, Scalar(0, 0, 255));
+            if (bestImgBasis[m].empty()) {
+                cout << "Error! Empty image basis!" << endl;
+                //continue;
             }
-            //imshow("plane", plane);
-            
-            // Find the edge lines in the 2D planes
-            vector<Vec4i> lines = orange::borderLines(plane);
-            vector<Point2f> imgPoints;
-            
-            // Convert the edges to a set of points
-            for (int i = 0; i < lines.size(); i++) {
-                Point p1 = Point(lines[i][0], lines[i][1]);
-                Point p2 = Point(lines[i][2], lines[i][3]);
-                
-                Scalar colour = Scalar(0,255,0);
-                if (i == 0) colour = Scalar(255,0,0);
-                
-                line(plane, p1, p2, colour);
-                imgPoints.push_back(Point2f(p1));
-                imgPoints.push_back(Point2f(p2));
-            }
-            //imshow("plane2", plane);
-            
-            // * * * * * * * * * * * * * *
-            //      RECOGNITION
-            // * * * * * * * * * * * * * *
-            
-            estimate bestEst = estimate({0,0,0,0,0,0}, 10000, 100);  // The best estimated pose so far
-            int edge = 0;   // The detected edge to use as a basis
-            
-            while (edge < lines.size()) {
-                vector<int> imgBasis = {2*edge, 2*edge +1};
-                
-                // Vote for the tables using the given basis
-                vector<HashTable> votedTables = hashing::voteForTables(tables[m], imgPoints, imgBasis);
-                int maxVotes = votedTables[0].votes;
-                
-                for (int i = 0; i < votedTables.size(); i++) {
-                    HashTable t = votedTables[i];
-                    if (t.votes < MIN(200, maxVotes)) break;
-                    
-                    vector<Mat> orderedPoints = hashing::getOrderedPoints(imgBasis, t, model[m]->getVertices(), imgPoints);
-                    
-                    Mat newModel = orderedPoints[0];
-                    Mat newTarget = orderedPoints[1];
-                    
-                    // Require at least 4 correspondences
-                    if (newModel.cols < 4) continue;
-                    
-                    vconcat(newModel.rowRange(0, 2), newModel.row(3), newModel);
-                    vconcat(newTarget.t(), Mat::ones(1, newTarget.rows, newTarget.type()), newTarget);
-                    
-                    // Use least squares to estimate pose
-                    estimate est = lsq::poseEstimate2D({0,0,0}, newModel, newTarget);
-                    if (est.error < bestEst.error) bestEst = est;
-                }
-                edge++;
-            }
+            estimate est = bestEst[m];
             
             // * * * * * * * * * * * * * * * * *
             //      SHOW THE ESTIMATED POSE
@@ -318,7 +325,7 @@ int main(int argc, const char * argv[]) {
             vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
             
             // Find the coordintes using the LSQ result
-            Vec3f poseLSQ = {bestEst.pose[0] - Ox, bestEst.pose[1] - Oy, bestEst.pose[5]};
+            Vec3f poseLSQ = {est.pose[0] - Ox, est.pose[1] - Oy, est.pose[5]};
             Mat modelInPlane = lsq::projection2D(poseLSQ, modelMat);
             
             // Project to the camera
@@ -339,15 +346,7 @@ int main(int argc, const char * argv[]) {
             
             polylines(frame, &pts, &npts, 1, true, Scalar(0, 255, 0));
             
-            // Measure and report the unexplained area
-            if (!REPORT_ERRORS) continue;
-            Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
-            fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
-            double unexplainedArea = area::unexplainedArea(silhouette, seg);
-            errors[m].push_back(unexplainedArea);
-            if (unexplainedArea > worstError[m]) worstError[m] = unexplainedArea;
         }
-        imshow("Frame", frame);
         
         auto endRecog = chrono::system_clock::now();
         chrono::duration<double> timeRecog = endRecog-startRecog;
@@ -357,8 +356,59 @@ int main(int argc, const char * argv[]) {
         times.push_back(time);
         if (time > longestTime) longestTime = time;
         
+        // Measure and report the area errors
+        if (REPORT_ERRORS) {
+            for (int m = 0; m < model.size(); m++) {
+                estimate est = bestEst[m];
+                
+                Mat modelMat = model[m]->pointsToMat();
+                vconcat(modelMat.rowRange(0, 2), modelMat.row(3), modelMat);
+                
+                // Find the coordintes using the LSQ result
+                Vec3f poseLSQ = {est.pose[0] - Ox, est.pose[1] - Oy, est.pose[5]};
+                Mat modelInPlane = lsq::projection2D(poseLSQ, modelMat);
+                
+                // Project to the camera
+                y = P * modelInPlane;
+                z = y.row(2);
+                vconcat(z, z, norm);
+                vconcat(norm, z, norm);
+                divide(y, norm, y);
+                
+                // Draw the shape
+                vector<Point> contour;
+                for (int i = 0; i < y.cols; i++) {
+                    contour.push_back(Point(y.at<float>(0,i), y.at<float>(1,i)));
+                }
+                
+                const Point *pts = (const cv::Point*) Mat(contour).data;
+                int npts = Mat(contour).rows;
+                
+                Mat seg = orange::segmentByColour(frameOrig, model[m]->colour);
+                cvtColor(seg, seg, CV_BGR2GRAY);
+                Mat silhouette = Mat(frame.rows, frame.cols,  CV_8UC1, Scalar(0));
+                fillPoly(silhouette, &pts, &npts, 1, Scalar(255));
+                double areaError = area::areaError(silhouette, seg);
+                errorArea[m].push_back(areaError);
+                if (areaError > worstError[m]) worstError[m] = areaError;
+                if (areaError > 50) failures[m]++;
+            }
+        }
+        
+        // Log time and errors
+        if (LOGGING) {
+            log << time;
+            for (int m = 0; m < model.size(); m++) {
+                log << ";" << errorArea[m].back() << ";" << bestEst[m].error;
+                bestEst[m].pose[2] = lines.size(); // Log number of lines in z coord
+                for (int i = 0; i < 6; i++) log << ";" << bestEst[m].pose[i];
+            }
+            log << endl;
+        }
+        
+        imshow("Frame", frame);
+        
         // Get next frame
-        cap.grab();
         cap >> frame;
         
         if (waitKey(1) == 'q') break;
@@ -366,21 +416,18 @@ int main(int argc, const char * argv[]) {
     
     vector<double> meanTime, stdDevTime;
     meanStdDev(times, meanTime, stdDevTime);
-    
-    cout << endl << endl;
-    cout << "No. frames   = " << times.size() << endl;
+    cout << endl << "NEW METHOD:" << endl;
     cout << "Avg time     = " << meanTime[0] << " ms     " << 1000.0/meanTime[0] << " fps" << endl;
     cout << "stdDev time  = " << stdDevTime[0] << " ms" << endl;
     cout << "Longest time = " << longestTime << " ms     " << 1000.0/longestTime << " fps" << endl;
     
     // Report errors
     if (!REPORT_ERRORS) return 0;
-    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst" << endl;
+    cout << endl << "AREA ERRORS:" << endl << "Model   Mean     StDev    Worst     Failures" << endl;
     for (int m = 0; m < model.size(); m++) {
         vector<double> meanError, stdDevError;
-        meanStdDev(errors[m], meanError, stdDevError);
-        printf("%4i    %5.2f    %5.2f    %5.2f \n", m, meanError[0], stdDevError[0], worstError[m]);
-        //cout << m << "   " << meanError[0] << "   " << stdDevError[0] << "   " << worstError[m] << endl;
+        meanStdDev(errorArea[m], meanError, stdDevError);
+        printf("%4i    %5.2f    %5.2f    %6.2f   %4i \n", m, meanError[0], stdDevError[0], worstError[m], failures[m]);
     }
     
     return 0;
